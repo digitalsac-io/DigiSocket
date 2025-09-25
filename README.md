@@ -1,4 +1,4 @@
-<h1 align='center'><img alt="Baileys logo" src="https://github.com/digitalsac-io/DigiSocket/blob/536624778228522a2039592a64a9d72c37c5f53b/Digisockets.png?raw=true" height="75"/></h1>
+<h1 align='center'><img alt="Baileys logo" src="https://github.com/digitalsac-io/DigiSocket/blob/536624778228522a2039592a64a9d72c37c5f53b/Digisockets.png?raw=true" height="200"/></h1>
 
 <div align='center'>DigiSockets is a WebSockets-based TypeScript library for interacting with the WhatsApp Web API.</div>
 
