@@ -35,12 +35,12 @@ import {
 	hkdf,
 	MISSING_KEYS_ERROR_TEXT,
 	NACK_REASONS,
-	NO_MESSAGE_FOUND_ERROR_TEXT,
 	unixTimestampSeconds,
 	xmppPreKey,
 	xmppSignedPreKey
 } from '../Utils'
 import { makeMutex } from '../Utils/make-mutex'
+import { decodeAndHydrate } from '../Utils/proto-utils'
 import {
 	areJidsSameUser,
 	type BinaryNode,
@@ -298,7 +298,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 							typeof plaintextNode.content === 'string'
 								? Buffer.from(plaintextNode.content, 'binary')
 								: Buffer.from(plaintextNode.content as Uint8Array)
-						const messageProto = proto.Message.decode(contentBuf)
+						const messageProto = decodeAndHydrate(proto.Message, contentBuf)
 						const fullMessage = proto.WebMessageInfo.create({
 							key: {
 								remoteJid: from,
@@ -1015,7 +1015,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			}
 		}
 
-		await assertSessions([participant], shouldRecreateSession)
+		await assertSessions([participant], true)
 
 		if (isJidGroup(remoteJid)) {
 			await authState.keys.set({ 'sender-key-memory': { [remoteJid]: null } })
@@ -1191,33 +1191,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			return
 		}
 
-		let response: string | undefined
-
-		if (getBinaryNodeChild(node, 'unavailable') && !encNode) {
-			await sendMessageAck(node)
-			const { key } = decodeMessageNode(node, authState.creds.me!.id, authState.creds.me!.lid || '').fullMessage
-			response = await requestPlaceholderResend(key) // TODO: DEPRECATE THIS LOGIC AND PASS IT OFF TO THE RETRY MANAGER
-			if (response === 'RESOLVED') {
-				return
-			}
-
-			logger.debug('received unavailable message, acked and requested resend from phone')
-		} else {
-			if (await placeholderResendCache.get(node.attrs.id!)) {
-				await placeholderResendCache.del(node.attrs.id!)
-			}
-		}
-
 		const {
 			fullMessage: msg,
 			category,
 			author,
 			decrypt
 		} = decryptMessageNode(node, authState.creds.me!.id, authState.creds.me!.lid || '', signalRepository, logger)
-
-		if (response && msg?.messageStubParameters?.[0] === NO_MESSAGE_FOUND_ERROR_TEXT) {
-			msg.messageStubParameters = [NO_MESSAGE_FOUND_ERROR_TEXT, response]
-		}
 
 		if (
 			msg.message?.protocolMessage?.type === proto.Message.ProtocolMessage.Type.SHARE_PHONE_NUMBER &&
@@ -1227,23 +1206,23 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 				pn = jidNormalizedUser(node.attrs.sender_pn)
 			ev.emit('lid-mapping.update', { lid, pn })
 			await signalRepository.lidMapping.storeLIDPNMappings([{ lid, pn }])
+			await signalRepository.migrateSession(pn, lid)
 		}
 
 		const alt = msg.key.participantAlt || msg.key.remoteJidAlt
 		// store new mappings we didn't have before
 		if (!!alt) {
 			const altServer = jidDecode(alt)?.server
+			const primaryJid = msg.key.participant || msg.key.remoteJid!
 			if (altServer === 'lid') {
 				if (typeof (await signalRepository.lidMapping.getPNForLID(alt)) === 'string') {
-					await signalRepository.lidMapping.storeLIDPNMappings([
-						{ lid: alt, pn: msg.key.participant || msg.key.remoteJid! }
-					])
+					await signalRepository.lidMapping.storeLIDPNMappings([{ lid: alt, pn: primaryJid }])
+					await signalRepository.migrateSession(primaryJid, alt)
 				}
 			} else {
 				if (typeof (await signalRepository.lidMapping.getLIDForPN(alt)) === 'string') {
-					await signalRepository.lidMapping.storeLIDPNMappings([
-						{ lid: msg.key.participant || msg.key.remoteJid!, pn: alt }
-					])
+					await signalRepository.lidMapping.storeLIDPNMappings([{ lid: primaryJid, pn: alt }])
+					await signalRepository.migrateSession(alt, primaryJid)
 				}
 			}
 		}
@@ -1281,12 +1260,6 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 									logger.debug({ node }, 'Connection closed, skipping retry')
 									return
 								}
-
-								if (getBinaryNodeChild(node, 'unavailable')) {
-									logger.debug('Message unavailable, skipping retry')
-									return
-								}
-
 								// Handle pre-key errors with upload and delay
 								if (isPreKeyError) {
 									logger.info({ error: errorMessage }, 'PreKey error detected, uploading and retrying')

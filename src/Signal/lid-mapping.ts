@@ -1,6 +1,6 @@
 import { LRUCache } from 'lru-cache'
 import type { SignalKeyStoreWithTransaction } from '../Types'
-import logger from '../Utils/logger'
+import type { ILogger } from '../Utils/logger'
 import { isLidUser, isPnUser, jidDecode } from '../WABinary'
 
 export class LIDMappingStore {
@@ -10,28 +10,11 @@ export class LIDMappingStore {
 		updateAgeOnGet: true
 	})
 	private readonly keys: SignalKeyStoreWithTransaction
-	private onWhatsAppFunc?: (...jids: string[]) => Promise<
-		| {
-				jid: string
-				exists: boolean
-				lid: string
-		  }[]
-		| undefined
-	>
+	private readonly logger: ILogger
 
-	constructor(
-		keys: SignalKeyStoreWithTransaction,
-		onWhatsAppFunc?: (...jids: string[]) => Promise<
-			| {
-					jid: string
-					exists: boolean
-					lid: string
-			  }[]
-			| undefined
-		>
-	) {
+	constructor(keys: SignalKeyStoreWithTransaction, logger: ILogger) {
 		this.keys = keys
-		this.onWhatsAppFunc = onWhatsAppFunc // needed to get LID from PN if not found
+		this.logger = logger
 	}
 
 	/**
@@ -42,12 +25,10 @@ export class LIDMappingStore {
 		const pairMap: { [_: string]: string } = {}
 		for (const { lid, pn } of pairs) {
 			if (!((isLidUser(lid) && isPnUser(pn)) || (isPnUser(lid) && isLidUser(pn)))) {
-				logger.warn(`Invalid LID-PN mapping: ${lid}, ${pn}`)
+				this.logger.warn(`Invalid LID-PN mapping: ${lid}, ${pn}`)
 				continue
 			}
-
 			const [lidJid, pnJid] = isLidUser(lid) ? [lid, pn] : [pn, lid]
-
 			const lidDecoded = jidDecode(lidJid)
 			const pnDecoded = jidDecode(pnJid)
 
@@ -59,7 +40,7 @@ export class LIDMappingStore {
 			// Check if mapping already exists (cache first, then database)
 			let existingLidUser = this.mappingCache.get(`pn:${pnUser}`)
 			if (!existingLidUser) {
-				// Cache miss - check database
+				this.logger.trace(`Cache miss for PN user ${pnUser}; checking database`)
 				const stored = await this.keys.get('lid-mapping', [pnUser])
 				existingLidUser = stored[pnUser]
 				if (existingLidUser) {
@@ -70,25 +51,24 @@ export class LIDMappingStore {
 			}
 
 			if (existingLidUser === lidUser) {
-				logger.debug({ pnUser, lidUser }, 'LID mapping already exists, skipping')
+				this.logger.debug({ pnUser, lidUser }, 'LID mapping already exists, skipping')
 				continue
 			}
 
 			pairMap[pnUser] = lidUser
 		}
 
-		logger.trace({ pairMap }, `Storing ${Object.keys(pairMap).length} pn mappings`)
+		this.logger.trace({ pairMap }, `Storing ${Object.keys(pairMap).length} pn mappings`)
 
 		await this.keys.transaction(async () => {
 			for (const [pnUser, lidUser] of Object.entries(pairMap)) {
 				await this.keys.set({
 					'lid-mapping': {
-						[pnUser]: lidUser, // "554396160286" -> "102765716062358"
-						[`${lidUser}_reverse`]: pnUser // "102765716062358_reverse" -> "554396160286"
+						[pnUser]: lidUser,
+						[`${lidUser}_reverse`]: pnUser
 					}
 				})
 
-				// Update cache with both directions
 				this.mappingCache.set(`pn:${pnUser}`, lidUser)
 				this.mappingCache.set(`lid:${lidUser}`, pnUser)
 			}
@@ -116,31 +96,23 @@ export class LIDMappingStore {
 			if (lidUser) {
 				// Cache the database result
 				this.mappingCache.set(`pn:${pnUser}`, lidUser)
+				this.mappingCache.set(`lid:${lidUser}`, pnUser)
 			} else {
-				// Not in database - try USync
-				logger.trace(`No LID mapping found for PN user ${pnUser}; getting from USync`)
-				const { exists, lid } = (await this.onWhatsAppFunc?.(pn))?.[0]! // this function already adds LIDs to mapping
-				if (exists && lid) {
-					lidUser = jidDecode(lid)?.user
-					if (lidUser) {
-						// Cache the USync result
-						this.mappingCache.set(`pn:${pnUser}`, lidUser)
-					}
-				} else {
-					return null
-				}
+				this.logger.trace(`No LID mapping found for PN user ${pnUser}`)
+				return null
 			}
 		}
 
-		if (typeof lidUser !== 'string' || !lidUser) {
-			logger.warn(`Invalid or empty LID user for PN ${pn}: lidUser = "${lidUser}"`)
+		lidUser = lidUser.toString()
+		if (!lidUser) {
+			this.logger.warn(`Invalid or empty LID user for PN ${pn}: lidUser = "${lidUser}"`)
 			return null
 		}
 
 		// Return simple LID without device separation to keep conversations unified
 		const unifiedLid = `${lidUser}@lid`
 
-		logger.trace(`getLIDForPN: ${pn} → ${unifiedLid} (unified user mapping)`)
+		this.logger.trace(`getLIDForPN: ${pn} → ${unifiedLid} (unified user mapping)`)
 		return unifiedLid
 	}
 
@@ -163,7 +135,7 @@ export class LIDMappingStore {
 			pnUser = stored[`${lidUser}_reverse`]
 
 			if (!pnUser || typeof pnUser !== 'string') {
-				logger.trace(`No reverse mapping found for LID user: ${lidUser}`)
+				this.logger.trace(`No reverse mapping found for LID user: ${lidUser}`)
 				return null
 			}
 
@@ -173,7 +145,7 @@ export class LIDMappingStore {
 		// Return simple PN JID without device separation to keep conversations unified
 		const pnJid = `${pnUser}@s.whatsapp.net`
 
-		logger.trace(`Found reverse mapping: ${lid} → ${pnJid} (unified)`)
+		this.logger.trace(`Found reverse mapping: ${lid} → ${pnJid} (unified)`)
 		return pnJid
 	}
 }

@@ -32,6 +32,7 @@ import { type BinaryNode, getBinaryNodeChild, getBinaryNodeChildBuffer, jidNorma
 import { aesDecryptGCM, aesEncryptGCM, hkdf } from './crypto'
 import { generateMessageIDV2 } from './generics'
 import type { ILogger } from './logger'
+import { decodeAndHydrate } from './proto-utils'
 
 const getTmpFilesDirectory = () => tmpdir()
 
@@ -843,7 +844,7 @@ export const decryptMediaRetryData = async (
 ) => {
 	const retryKey = await getMediaRetryKey(mediaKey)
 	const plaintext = aesDecryptGCM(ciphertext, retryKey, iv, Buffer.from(msgId))
-	return proto.MediaRetryNotification.decode(plaintext)
+	return decodeAndHydrate(proto.MediaRetryNotification, plaintext)
 }
 
 export const getStatusCodeForMediaRetry = (code: number) =>

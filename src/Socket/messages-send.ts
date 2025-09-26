@@ -448,7 +448,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				// Migrate all devices for this user if LID mapping exists
 				if (shouldMigrateUser && lidForPN) {
 					// Migrate each device individually
-					const migrationResult = await signalRepository.migrateSession(userJids, lidForPN)
+					const migrationResult = await signalRepository.migrateSession(userJids[0]!, lidForPN)
 
 					if (migrationResult.migrated > 0) {
 						logger.info(
@@ -481,9 +481,20 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 					// Check if we should use migrated LID session instead
 					if (jid.includes('@s.whatsapp.net') && shouldMigrateUser && lidForPN) {
-						// Use unified LID without device separation to keep conversations unified
-						jidsRequiringFetch.push(lidForPN)
-						logger.debug({ pnJid: jid, lidJid: lidForPN }, 'Adding unified LID JID to fetch list (conversion)')
+						// Build device-specific LID JID
+						const wireDecoded = jidDecode(jid)
+						const deviceId = wireDecoded?.device || 0
+						const lidDecoded = jidDecode(lidForPN)
+						const lidWithDevice = jidEncode(lidDecoded?.user!, 'lid', deviceId)
+						
+						// Check if we already have the LID session
+						const lidSessionAddr = signalRepository.jidToSignalProtocolAddress(lidWithDevice)
+						if (!sessions[lidSessionAddr]) {
+							jidsRequiringFetch.push(lidWithDevice)
+							logger.debug({ pnJid: jid, lidJid: lidWithDevice }, 'Adding device-specific LID JID to fetch list')
+						} else {
+							logger.debug({ pnJid: jid, lidJid: lidWithDevice }, 'LID session already exists, skipping fetch')
+						}
 					} else {
 						jidsRequiringFetch.push(jid)
 						logger.debug({ jid }, 'Adding JID to fetch list')
@@ -639,7 +650,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 				const userNodes: BinaryNode[] = []
 
-				// Helper to get encryption JID with LID migration
+				// Helper to get encryption JID with LID preference (no migration here to avoid loops)
 				const getEncryptionJid = async (wireJid: string) => {
 					if (!wireJid.includes('@s.whatsapp.net')) return wireJid
 
@@ -654,31 +665,18 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 						const lidDecoded = jidDecode(lidForPN)
 						const lidWithDevice = jidEncode(lidDecoded?.user!, 'lid', deviceId)
 
-						// Migrate session to LID for unified encryption layer
-						try {
-							const migrationResult = await signalRepository.migrateSession([wireJid], lidWithDevice)
-							const recipientUser = jidNormalizedUser(wireJid)
-							const ownPnUser = jidNormalizedUser(meId)
-							const isOwnDevice = recipientUser === ownPnUser
-							logger.info({ wireJid, lidWithDevice, isOwnDevice }, 'Migrated to LID encryption')
-
-							// Delete PN session after successful migration
-							try {
-								if (migrationResult.migrated) {
-									await signalRepository.deleteSession([wireJid])
-									logger.debug({ deletedPNSession: wireJid }, 'Deleted PN session')
-								}
-							} catch (deleteError) {
-								logger.warn({ wireJid, error: deleteError }, 'Failed to delete PN session')
-							}
-
+						// Check if LID session exists before using it
+						const lidValidation = await signalRepository.validateSession(lidWithDevice)
+						if (lidValidation.exists) {
+							logger.debug({ wireJid, lidWithDevice }, 'Using existing LID session for encryption')
 							return lidWithDevice
-						} catch (migrationError) {
-							logger.warn({ wireJid, error: migrationError }, 'Failed to migrate session')
-							return wireJid
 						}
+
+						// Fallback to PN if LID session doesn't exist
+						logger.debug({ wireJid, lidWithDevice, reason: lidValidation.reason }, 'LID session not available, using PN')
+						return wireJid
 					} catch (error) {
-						logger.debug({ wireJid, error }, 'Failed to check LID mapping')
+						logger.debug({ wireJid, error }, 'Failed to check LID mapping, using PN')
 						return wireJid
 					}
 				}
@@ -723,35 +721,96 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 					const bytes = encodeWAMessage(messageToEncrypt)
 
-					// Get encryption JID with LID migration
+					// Get encryption JID with LID preference
 					const encryptionJid = await getEncryptionJid(wireJid)
 
-					// ENCRYPT: Use the determined encryption identity (prefers migrated LID)
-					const { type, ciphertext } = await signalRepository.encryptMessage({
-						jid: encryptionJid, // Unified encryption layer (LID when available)
-						data: bytes
-					})
-
-					if (type === 'pkmsg') {
-						shouldIncludeDeviceIdentity = true
+					// Validate session before encryption to prevent loops
+					const sessionValidation = await signalRepository.validateSession(encryptionJid)
+					if (!sessionValidation.exists) {
+						logger.warn({ 
+							wireJid, 
+							encryptionJid, 
+							reason: sessionValidation.reason 
+						}, 'No valid session for encryption, skipping device')
+						continue
 					}
 
-					const node: BinaryNode = {
-						tag: 'to',
-						attrs: { jid: wireJid }, // Always use original wire identity in envelope
-						content: [
-							{
-								tag: 'enc',
-								attrs: {
-									v: '2',
-									type,
-									...(extraAttrs || {})
-								},
-								content: ciphertext
+					// ENCRYPT: Use the determined encryption identity (prefers LID when available)
+					try {
+						const { type, ciphertext } = await signalRepository.encryptMessage({
+							jid: encryptionJid,
+							data: bytes
+						})
+
+						if (type === 'pkmsg') {
+							shouldIncludeDeviceIdentity = true
+						}
+
+						const node: BinaryNode = {
+							tag: 'to',
+							attrs: { jid: wireJid }, // Always use original wire identity in envelope
+							content: [
+								{
+									tag: 'enc',
+									attrs: {
+										v: '2',
+										type,
+										...(extraAttrs || {})
+									},
+									content: ciphertext
+								}
+							]
+						}
+						userNodes.push(node)
+					} catch (encryptError) {
+						logger.error({ 
+							wireJid, 
+							encryptionJid, 
+							error: encryptError 
+						}, 'Failed to encrypt message, skipping device')
+						
+						// If LID encryption failed, try fallback to PN
+						if (encryptionJid !== wireJid && wireJid.includes('@s.whatsapp.net')) {
+							logger.info({ wireJid }, 'Attempting PN fallback after LID encryption failure')
+							try {
+								const pnValidation = await signalRepository.validateSession(wireJid)
+								if (pnValidation.exists) {
+									const { type, ciphertext } = await signalRepository.encryptMessage({
+										jid: wireJid,
+										data: bytes
+									})
+
+									if (type === 'pkmsg') {
+										shouldIncludeDeviceIdentity = true
+									}
+
+									const node: BinaryNode = {
+										tag: 'to',
+										attrs: { jid: wireJid },
+										content: [
+											{
+												tag: 'enc',
+												attrs: {
+													v: '2',
+													type,
+													...(extraAttrs || {})
+												},
+												content: ciphertext
+											}
+										]
+									}
+									userNodes.push(node)
+									logger.info({ wireJid }, 'PN fallback encryption successful')
+								} else {
+									logger.warn({ wireJid, reason: pnValidation.reason }, 'PN fallback also has no valid session')
+								}
+							} catch (pnError) {
+								logger.error({ wireJid, error: pnError }, 'PN fallback encryption also failed')
 							}
-						]
+						}
+						continue
 					}
-					userNodes.push(node)
+
 				}
 
 				logger.debug({ user, nodesCreated: userNodes.length }, 'Releasing encryption lock for user devices')
