@@ -1,7 +1,7 @@
 {
   "name": "Digisockets",
   "type": "module",
-  "version": "1.0.0",
+  "version": "7.0.0-rc.4",
   "description": "A WebSockets library for interacting with WhatsApp Web",
   "keywords": [
     "whatsapp",
