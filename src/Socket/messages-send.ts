@@ -839,7 +839,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 	) => {
 		const meId = authState.creds.me!.id
 		const meLid = authState.creds.me?.lid
-
+		const isRetryResend = Boolean(participant?.jid)
 		// ADDRESSING CONSISTENCY: Keep envelope addressing as user provided, handle LID migration in encryption
 
 		let shouldIncludeDeviceIdentity = false
@@ -975,6 +975,13 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					const additionalDevices = await getUSyncDevices(participantsList, !!useUserDevicesCache, false)
 					devices.push(...additionalDevices)
 				}
+				
+				if (groupData?.ephemeralDuration && groupData.ephemeralDuration > 0) {
+					additionalAttributes = {
+						...additionalAttributes,
+						expiration: groupData.ephemeralDuration.toString()
+					}
+				}
 
 				const patched = await patchMessageBeforeSending(message)
 
@@ -1000,7 +1007,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					// This preserves the LID migration results from getUSyncDevices
 					const deviceJid = device.wireJid
 					const hasKey = !!senderKeyMap[deviceJid]
-					if (!hasKey || !!participant) {
+					if (!hasKey || isRetryResend) {
 						senderKeyJids.push(deviceJid)
 						// store that this person has had the sender keys sent to them
 						senderKeyMap[deviceJid] = true
@@ -1027,13 +1034,30 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					participants.push(...result.nodes)
 				}
 
-				binaryNodeContent.push({
-					tag: 'enc',
-					attrs: { v: '2', type: 'skmsg', ...extraAttrs },
-					content: ciphertext
-				})
+				if (isRetryResend) {
+					const { type, ciphertext: encryptedContent } = await signalRepository.encryptMessage({
+						data: bytes,
+						jid: participant?.jid!
+					})
 
-				await authState.keys.set({ 'sender-key-memory': { [jid]: senderKeyMap } })
+					binaryNodeContent.push({
+						tag: 'enc',
+						attrs: {
+							v: '2',
+							type,
+							count: participant!.count.toString()
+						},
+						content: encryptedContent
+					})
+				} else {
+					binaryNodeContent.push({
+						tag: 'enc',
+						attrs: { v: '2', type: 'skmsg', ...extraAttrs },
+						content: ciphertext
+					})
+
+					await authState.keys.set({ 'sender-key-memory': { [jid]: senderKeyMap } })
+				}
 			} else {
 				const { user: ownUser } = jidDecode(ownId)!
 
