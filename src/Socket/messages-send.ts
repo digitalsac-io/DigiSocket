@@ -1227,6 +1227,10 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			return 'event'
 		}
 
+		if (getMediaType(message) !== '') {
+			return 'media'
+		}
+
 		return 'text'
 	}
 
@@ -1262,6 +1266,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		} else if (message.groupInviteMessage) {
 			return 'url'
 		}
+
+			return ''
 	}
 
 	const getButtonType = (message: proto.IMessage) => {

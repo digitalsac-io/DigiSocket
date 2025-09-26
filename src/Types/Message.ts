@@ -21,6 +21,7 @@ export type WAMessageKey = proto.IMessageKey & {
 	participantLid?: string
 	participantPn?: string
 	server_id?: string
+	addressingMode?: string
 	isViewOnce?: boolean // TODO: remove out of the message key, place in WebMessageInfo
 }
 export type WATextMessage = proto.Message.IExtendedTextMessage
