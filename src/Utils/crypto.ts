@@ -15,7 +15,7 @@ export const Curve = {
 		const { pubKey, privKey } = curve.generateKeyPair()
 		return {
 			private: Buffer.from(privKey),
-			// Fallback implementation using Node.js crypto
+			// remove version byte
 			public: Buffer.from(pubKey.slice(1))
 		}
 	},
@@ -128,7 +128,7 @@ export async function hkdf(
 	expandedLength: number,
 	info: { salt?: Buffer; info?: string }
 ): Promise<Buffer> {
-	// Ensure we have a Uint8Array for the key material
+	// Normalize to a Uint8Array whose underlying buffer is a regular ArrayBuffer (not ArrayBufferLike)
 	// Cloning via new Uint8Array(...) guarantees the generic parameter is ArrayBuffer which satisfies WebCrypto types.
 	const inputKeyMaterial = new Uint8Array(buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer))
 
@@ -136,7 +136,7 @@ export async function hkdf(
 	const salt = info.salt ? new Uint8Array(info.salt) : new Uint8Array(0)
 	const infoBytes = info.info ? new TextEncoder().encode(info.info) : new Uint8Array(0)
 
-	// Import the input key material
+	// Import the input key material (cast to BufferSource to appease TS DOM typings)
 	const importedKey = await subtle.importKey('raw', inputKeyMaterial as BufferSource, { name: 'HKDF' }, false, [
 		'deriveBits'
 	])

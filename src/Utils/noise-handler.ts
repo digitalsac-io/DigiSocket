@@ -1,12 +1,12 @@
 import { Boom } from '@hapi/boom'
 import { proto } from '../../WAProto/index.js'
+import { decodeAndHydrate } from './proto-utils'
 import { NOISE_MODE, WA_CERT_DETAILS } from '../Defaults'
 import type { KeyPair } from '../Types'
 import type { BinaryNode } from '../WABinary'
 import { decodeBinaryNode } from '../WABinary'
 import { aesDecryptGCM, aesEncryptGCM, Curve, hkdf, sha256 } from './crypto'
 import type { ILogger } from './logger'
-import { decodeAndHydrate } from './proto-utils'
 
 const generateIV = (counter: number) => {
 	const iv = new ArrayBuffer(12)

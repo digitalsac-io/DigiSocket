@@ -387,7 +387,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			]
 		})
 		
-		// Opcionalmente bloqueia o usu√°rio tamb√©m
+		// Opcionalmente bloqueia o usu·rio tambÈm
 		if (reportAndBlock) {
 			await updateBlockStatus(jid, 'block')
 		}

@@ -1,4 +1,3 @@
-import type { AxiosRequestConfig } from 'axios'
 import { proto } from '../../WAProto/index.js'
 import type {
 	AuthenticationCreds,
@@ -14,7 +13,16 @@ import type {
 } from '../Types'
 import { WAMessageStubType } from '../Types'
 import { getContentType, normalizeMessageContent } from '../Utils/messages'
-import { areJidsSameUser, isJidBroadcast, isJidStatusBroadcast, jidNormalizedUser } from '../WABinary'
+import {
+	areJidsSameUser,
+	isJidBroadcast,
+	isJidHostedLidUser,
+	isJidHostedPnUser,
+	isJidStatusBroadcast,
+	jidDecode,
+	jidEncode,
+	jidNormalizedUser
+} from '../WABinary'
 import { aesDecryptGCM, hmacSign } from './crypto'
 import { toNumber } from './generics'
 import { downloadAndProcessHistorySyncNotification } from './history'
@@ -28,7 +36,7 @@ type ProcessMessageContext = {
 	keyStore: SignalKeyStoreWithTransaction
 	ev: BaileysEventEmitter
 	logger?: ILogger
-	options: AxiosRequestConfig<{}>
+	options: RequestInit
 	signalRepository: SignalRepositoryWithLIDStore
 }
 
@@ -44,8 +52,24 @@ const REAL_MSG_REQ_ME_STUB_TYPES = new Set([WAMessageStubType.GROUP_PARTICIPANT_
 /** Cleans a received message to further processing */
 export const cleanMessage = (message: proto.IWebMessageInfo, meId: string) => {
 	// ensure remoteJid and participant doesn't have device or agent in it
-	message.key.remoteJid = jidNormalizedUser(message.key.remoteJid!)
-	message.key.participant = message.key.participant ? jidNormalizedUser(message.key.participant) : undefined
+	if (isJidHostedPnUser(message.key.remoteJid!) || isJidHostedLidUser(message.key.remoteJid!)) {
+		message.key.remoteJid = jidEncode(
+			jidDecode(message.key.remoteJid!)?.user!,
+			isJidHostedPnUser(message.key.remoteJid!) ? 's.whatsapp.net' : 'lid'
+		)
+	} else {
+		message.key.remoteJid = jidNormalizedUser(message.key.remoteJid!)
+	}
+
+	if (isJidHostedPnUser(message.key.participant!) || isJidHostedLidUser(message.key.participant!)) {
+		message.key.participant = jidEncode(
+			jidDecode(message.key.participant!)?.user!,
+			isJidHostedPnUser(message.key.participant!) ? 's.whatsapp.net' : 'lid'
+		)
+	} else {
+		message.key.participant = jidNormalizedUser(message.key.participant!)
+	}
+
 	const content = normalizeMessageContent(message.message)
 	// if the message has a reaction, ensure fromMe & remoteJid are from our perspective
 	if (content?.reactionMessage) {
@@ -68,6 +92,7 @@ export const cleanMessage = (message: proto.IWebMessageInfo, meId: string) => {
 					// fromMe automatically becomes false
 					false
 			// set the remoteJid to being the same as the chat the message came from
+			// TODO: investigate inconsistencies
 			msgKey.remoteJid = message.key.remoteJid
 			// set participant of the message
 			msgKey.participant = msgKey.participant || message.key.participant
@@ -139,7 +164,7 @@ export function decryptPollVote(
 	const aad = toBinary(`${pollMsgId}\u0000${voterJid}`)
 
 	const decrypted = aesDecryptGCM(encPayload!, decKey, encIv!, aad)
-	return decodeAndHydrate(proto.Message.PollVoteMessage, decrypted)
+	return proto.Message.PollVoteMessage.decode(decrypted)
 
 	function toBinary(txt: string) {
 		return Buffer.from(txt)

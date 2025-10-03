@@ -388,9 +388,9 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 		const encKey = randomBytes(32);
 		const devices = (await getUSyncDevices([toJid], true, false))
-			.map(({ user, device }) => jidEncode(user, 's.whatsapp.net', device));
+			.map(({ user, device }: any) => jidEncode(user, 's.whatsapp.net', device));
 
-		await assertSessions(devices, true);
+		await assertSessions(devices);
 
 		const { nodes: destinations, shouldIncludeDeviceIdentity } = await createParticipantNodes(devices, {
 			call: {
@@ -518,7 +518,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 
 		if (retryCount <= 2) {
-			//request a resend via phone
+			// Use new retry manager for phone requests if available
 			if (messageRetryManager) {
 				// Schedule phone request with delay (like whatsmeow)
 				messageRetryManager.schedulePhoneRequest(msgId, async () => {
@@ -1010,12 +1010,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					logger.info({ participant, retryCount, reason: recreateReason }, 'recreating session for outgoing retry')
 					await authState.keys.set({ session: { [sessionId]: null } })
 				}
-			} catch (error) {
-				logger.warn({ error, participant }, 'failed to check session recreation for outgoing retry')
-			}
+		} catch (error) {
+			logger.warn({ error, participant }, 'failed to check session recreation for outgoing retry')
 		}
+	}
 
-		await assertSessions([participant], true)
+	await assertSessions([participant])
 
 		if (isJidGroup(remoteJid)) {
 			await authState.keys.set({ 'sender-key-memory': { [remoteJid]: null } })
@@ -1178,13 +1178,13 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const handleMessage = async (node: BinaryNode) => {
 		if (shouldIgnoreJid(node.attrs.from!) && node.attrs.from !== '@s.whatsapp.net') {
 			logger.debug({ key: node.attrs.key }, 'ignored message')
-			await sendMessageAck(node)
+			await sendMessageAck(node, NACK_REASONS.UnhandledError)
 			return
 		}
 
 		const encNode = getBinaryNodeChild(node, 'enc')
 
-		// Handle msmsg - try to process them instead of ignoring completely  
+		// TODO: temporary fix for crashes and issues resulting of failed msmsg decryption
 		if (encNode && encNode.attrs.type === 'msmsg') {
 			logger.debug({ key: node.attrs.key }, 'ignored msmsg')
 			await sendMessageAck(node, NACK_REASONS.MissingMessageSecret)
@@ -1198,32 +1198,19 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			decrypt
 		} = decryptMessageNode(node, authState.creds.me!.id, authState.creds.me!.lid || '', signalRepository, logger)
 
-		if (
-			msg.message?.protocolMessage?.type === proto.Message.ProtocolMessage.Type.SHARE_PHONE_NUMBER &&
-			node.attrs.sender_pn
-		) {
-			const lid = jidNormalizedUser(node.attrs.from),
-				pn = jidNormalizedUser(node.attrs.sender_pn)
-			ev.emit('lid-mapping.update', { lid, pn })
-			await signalRepository.lidMapping.storeLIDPNMappings([{ lid, pn }])
-			await signalRepository.migrateSession(pn, lid)
-		}
-
 		const alt = msg.key.participantAlt || msg.key.remoteJidAlt
 		// store new mappings we didn't have before
 		if (!!alt) {
 			const altServer = jidDecode(alt)?.server
 			const primaryJid = msg.key.participant || msg.key.remoteJid!
 			if (altServer === 'lid') {
-				if (typeof (await signalRepository.lidMapping.getPNForLID(alt)) === 'string') {
+				if (!(await signalRepository.lidMapping.getPNForLID(alt))) {
 					await signalRepository.lidMapping.storeLIDPNMappings([{ lid: alt, pn: primaryJid }])
 					await signalRepository.migrateSession(primaryJid, alt)
 				}
 			} else {
-				if (typeof (await signalRepository.lidMapping.getLIDForPN(alt)) === 'string') {
-					await signalRepository.lidMapping.storeLIDPNMappings([{ lid: primaryJid, pn: alt }])
-					await signalRepository.migrateSession(alt, primaryJid)
-				}
+				await signalRepository.lidMapping.storeLIDPNMappings([{ lid: primaryJid, pn: alt }])
+				await signalRepository.migrateSession(alt, primaryJid)
 			}
 		}
 
@@ -1260,6 +1247,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 									logger.debug({ node }, 'Connection closed, skipping retry')
 									return
 								}
+
 								// Handle pre-key errors with upload and delay
 								if (isPreKeyError) {
 									logger.info({ error: errorMessage }, 'PreKey error detected, uploading and retrying')
@@ -1319,8 +1307,6 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					}
 
 					cleanMessage(msg, authState.creds.me!.id)
-
-					await sendMessageAck(node)
 
 					await upsertMessage(msg, node.attrs.offline ? 'append' : 'notify')
 				})
@@ -1571,7 +1557,6 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		...sock,
 		sendMessageAck,
 		sendRetryRequest,
-		offerCall,
 		rejectCall,
 		fetchMessageHistory,
 		requestPlaceholderResend,

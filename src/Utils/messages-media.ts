@@ -1,10 +1,9 @@
 import { Boom } from '@hapi/boom'
-import axios, { type AxiosRequestConfig } from 'axios'
 import { exec } from 'child_process'
 import ffmpeg from 'fluent-ffmpeg'
-// @ts-ignore - ffmpeg-static nÃ£o tem tipos TypeScript
+// @ts-ignore - ffmpeg-static não tem tipos TypeScript
 import ffmpegPath from 'ffmpeg-static'
-// @ts-ignore - @ffprobe-installer/ffprobe nÃ£o tem tipos TypeScript
+// @ts-ignore - @ffprobe-installer/ffprobe não tem tipos TypeScript
 import ffprobePath from '@ffprobe-installer/ffprobe'
 import * as Crypto from 'crypto'
 import { once } from 'events'
@@ -196,6 +195,8 @@ async function convertAudioToBaileysStyle(
 }
 
 export const extractImageThumb = async (bufferOrFilePath: Readable | Buffer | string, width = 32) => {
+	// TODO: Move entirely to sharp, removing jimp as it supports readable streams
+	// This will have positive speed and performance impacts as well as minimizing RAM usage.
 	if (bufferOrFilePath instanceof Readable) {
 		bufferOrFilePath = await toBuffer(bufferOrFilePath)
 	}
@@ -245,7 +246,9 @@ export const generateProfilePicture = async (
 	if (Buffer.isBuffer(mediaUpload)) {
 		buffer = mediaUpload
 	} else {
+		// Use getStream to handle all WAMediaUpload types (Buffer, Stream, URL)
 		const { stream } = await getStream(mediaUpload)
+		// Convert the resulting stream to a buffer
 		buffer = await toBuffer(stream)
 	}
 
@@ -324,8 +327,7 @@ export async function getAudioWaveform(buffer: Buffer | string | Readable, logge
 			const blockStart = blockSize * i // the location of the first sample in the block
 			let sum = 0
 			for (let j = 0; j < blockSize; j++) {
-				const sample = rawData[blockStart + j]
-				sum = sum + Math.abs(sample || 0) // find the sum of all the samples in the block, defaulting to 0 if undefined
+				sum = sum + Math.abs(rawData[blockStart + j]) // find the sum of all the samples in the block
 			}
 
 			filteredData.push(sum / blockSize) // divide the sum by the block size to get the average
@@ -361,7 +363,7 @@ export const toBuffer = async (stream: Readable) => {
 	return Buffer.concat(chunks)
 }
 
-export const getStream = async (item: WAMediaUpload, opts?: AxiosRequestConfig) => {
+export const getStream = async (item: WAMediaUpload, opts?: RequestInit & { maxContentLength?: number }) => {
 	if (Buffer.isBuffer(item)) {
 		return { stream: toReadable(item), type: 'buffer' } as const
 	}
@@ -422,15 +424,24 @@ export async function generateThumbnail(
 	}
 }
 
-export const getHttpStream = async (url: string | URL, options: AxiosRequestConfig & { isStream?: true } = {}) => {
-	const fetched = await axios.get(url.toString(), { ...options, responseType: 'stream' })
-	return fetched.data as Readable
+export const getHttpStream = async (url: string | URL, options: RequestInit & { isStream?: true } = {}) => {
+	const response = await fetch(url.toString(), {
+		dispatcher: options.dispatcher,
+		method: 'GET',
+		headers: options.headers as HeadersInit
+	})
+	if (!response.ok) {
+		throw new Boom(`Failed to fetch stream from ${url}`, { statusCode: response.status, data: { url } })
+	}
+
+	// @ts-ignore Node18+ Readable.fromWeb exists
+	return Readable.fromWeb(response.body as any)
 }
 
 type EncryptedStreamOptions = {
 	saveOriginalFileIfRequired?: boolean
 	logger?: ILogger
-	opts?: AxiosRequestConfig
+	opts?: RequestInit
 }
 
 export const encryptedStream = async (
@@ -472,7 +483,11 @@ export const encryptedStream = async (
 		for await (const data of stream) {
 			fileLength += data.length
 
-			if (type === 'remote' && opts?.maxContentLength && fileLength + data.length > opts.maxContentLength) {
+			if (
+				type === 'remote' &&
+				(opts as any)?.maxContentLength &&
+				fileLength + data.length > (opts as any).maxContentLength
+			) {
 				throw new Boom(`content length exceeded when encrypting "${type}"`, {
 					data: { media, type }
 				})
@@ -546,7 +561,7 @@ const toSmallestChunkSize = (num: number) => {
 export type MediaDownloadOptions = {
 	startByte?: number
 	endByte?: number
-	options?: AxiosRequestConfig<{}>
+	options?: RequestInit
 }
 
 export const getUrlFromDirectPath = (directPath: string) => `https://${DEF_HOST}${directPath}`
@@ -592,8 +607,13 @@ export const downloadEncryptedContent = async (
 
 	const endChunk = endByte ? toSmallestChunkSize(endByte || 0) + AES_CHUNK_SIZE : undefined
 
-	const headers: AxiosRequestConfig['headers'] = {
-		...(options?.headers || {}),
+	const headersInit = options?.headers ? options.headers : undefined
+	const headers: Record<string, string> = {
+		...(headersInit
+			? Array.isArray(headersInit)
+				? Object.fromEntries(headersInit)
+				: (headersInit as Record<string, string>)
+			: {}),
 		Origin: DEFAULT_ORIGIN
 	}
 	if (startChunk || endChunk) {
@@ -606,9 +626,7 @@ export const downloadEncryptedContent = async (
 	// download the message
 	const fetched = await getHttpStream(downloadUrl, {
 		...(options || {}),
-		headers,
-		maxBodyLength: Infinity,
-		maxContentLength: Infinity
+		headers
 	})
 
 	let remainingBytes = Buffer.from([])
@@ -705,21 +723,32 @@ export const getWAUploadToServer = (
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			let result: any
 			try {
-				const body = await axios.post(url, createReadStream(filePath), {
-					...options,
-					maxRedirects: 0,
+				const stream = createReadStream(filePath)
+				const response = await fetch(url, {
+					dispatcher: fetchAgent,
+					method: 'POST',
+					body: stream as any,
 					headers: {
-						...(options.headers || {}),
+						...(() => {
+							const hdrs = options?.headers
+							if (!hdrs) return {}
+							return Array.isArray(hdrs) ? Object.fromEntries(hdrs) : (hdrs as Record<string, string>)
+						})(),
 						'Content-Type': 'application/octet-stream',
 						Origin: DEFAULT_ORIGIN
 					},
-					httpsAgent: fetchAgent,
-					timeout: timeoutMs,
-					responseType: 'json',
-					maxBodyLength: Infinity,
-					maxContentLength: Infinity
+					duplex: 'half',
+					// Note: custom agents/proxy require undici Agent; omitted here.
+					signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined
 				})
-				result = body.data
+				let parsed: any = undefined
+				try {
+					parsed = await response.json()
+				} catch {
+					parsed = undefined
+				}
+
+				result = parsed
 
 				if (result?.url || result?.directPath) {
 					urls = {
@@ -735,13 +764,9 @@ export const getWAUploadToServer = (
 					throw new Error(`upload failed, reason: ${JSON.stringify(result)}`)
 				}
 			} catch (error: any) {
-				if (axios.isAxiosError(error)) {
-					result = error.response?.data
-				}
-
 				const isLast = hostname === hosts[uploadInfo.hosts.length - 1]?.hostname
 				logger.warn(
-					{ trace: error.stack, uploadResult: result },
+					{ trace: error?.stack, uploadResult: result },
 					`Error in uploading to ${hostname} ${isLast ? '' : ', retrying...'}`
 				)
 			}

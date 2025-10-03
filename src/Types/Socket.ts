@@ -1,9 +1,8 @@
-import type { AxiosRequestConfig } from 'axios'
 import type { Agent } from 'https'
 import type { URL } from 'url'
 import { proto } from '../../WAProto/index.js'
 import type { ILogger } from '../Utils/logger'
-import type { AuthenticationState, SignalAuthState, TransactionCapabilityOptions } from './Auth'
+import type { AuthenticationState, LIDMapping, SignalAuthState, TransactionCapabilityOptions } from './Auth'
 import type { GroupMetadata } from './GroupMetadata'
 import { type MediaConnInfo } from './Message'
 import type { SignalRepositoryWithLIDStore } from './Signal'
@@ -28,7 +27,7 @@ export type PossiblyExtendedCacheStore = CacheStore & {
 	mdel?: (keys: string[]) => void | Promise<void> | number | boolean
 }
 
-export type PatchedMessageWithRecipientJID = proto.IMessage & { recipientJid?: string }
+export type PatchedMessageWithRecipientJID = proto.IMessage & {recipientJid?: string, listMessage?: any}
 
 export type SocketConfig = {
 	/** the WS url to connect to WA */
@@ -86,6 +85,8 @@ export type SocketConfig = {
 	/** provide a cache to store a user's device list */
 	userDevicesCache?: PossiblyExtendedCacheStore
 	/** cache to store call offers */
+	transformAudio?: boolean
+	/** cache to store call offers */
 	callOfferCache?: CacheStore
 	/** cache to track placeholder resends */
 	placeholderResendCache?: CacheStore
@@ -106,9 +107,6 @@ export type SocketConfig = {
 
 	/** Enable recent message caching for retry handling */
 	enableRecentMessageCache: boolean
-
-	/** Enable automatic audio transformation to PTT format for WhatsApp compatibility */
-	transformAudio: boolean
 
 	/**
 	 * Returns if a jid should be ignored,
@@ -134,8 +132,8 @@ export type SocketConfig = {
 		snapshot: boolean
 	}
 
-	/** options for axios */
-	options: AxiosRequestConfig<{}>
+	/** options for HTTP fetch requests */
+	options: RequestInit
 	/**
 	 * fetch a message from your store
 	 * implement this so that messages failed to send
@@ -149,13 +147,6 @@ export type SocketConfig = {
 	makeSignalRepository: (
 		auth: SignalAuthState,
 		logger: ILogger,
-		onWhatsAppFunc?: (...jids: string[]) => Promise<
-			| {
-					jid: string
-					exists: boolean
-					lid: string
-			  }[]
-			| undefined
-		>
+		pnToLIDFunc?: (jids: string[]) => Promise<LIDMapping[] | undefined>
 	) => SignalRepositoryWithLIDStore
 }

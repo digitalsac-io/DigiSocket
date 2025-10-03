@@ -1,6 +1,6 @@
-<h1 align='center'><img alt="Baileys logo" src="https://github.com/digitalsac-io/DigiSocket/blob/536624778228522a2039592a64a9d72c37c5f53b/Digisockets.png?raw=true" height="200"/></h1>
+<h1 align='center'><img alt="Baileys logo" src="https://raw.githubusercontent.com/WhiskeySockets/Baileys/refs/heads/master/Media/logo.png" height="75"/></h1>
 
-<div align='center'>DigiSockets is a WebSockets-based TypeScript library for interacting with the WhatsApp Web API.</div>
+<div align='center'>Baileys is a WebSockets-based TypeScript library for interacting with the WhatsApp Web API.</div>
 
 
 > [!CAUTION]
@@ -11,13 +11,13 @@
 > Please check out https://whiskey.so/migrate-latest for more information.
 
 > [!IMPORTANT]
-> I made a survey for users of the project to ask questions, and provide DigiSockets valuable insights regarding its users. I will be publishing the results of this form (after filtering) as well so we can study and understand where we need to work.
+> I made a survey for users of the project to ask questions, and provide Baileys valuable insights regarding its users. I will be publishing the results of this form (after filtering) as well so we can study and understand where we need to work.
 > 
 > The survey is anonymous and requires no personal info at all. You are required to sign-in with Google to keep responses to one person. You are able to edit your response after you submit. The deadline for this form is September 30, 2025.
 > 
 > I encourage you to put the effort, all it takes is 5-10 minutes and you get to ask me any questions you have.
 > 
-> \- DigiSockets
+> \- Rajeh (purpshell)
 > 
 > Fill in the survey via the link: https://whiskey.so/survey 
 
@@ -27,150 +27,163 @@ This is a temporary README.md, the new guide is in development and will this fil
 
 New guide link: https://baileys.wiki
 
+# Sponsor
+If you'd like to financially support this project, you can do so by supporting the current maintainer [here](https://purpshell.dev/sponsor).
+
 # Disclaimer
 This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with WhatsApp or any of its subsidiaries or its affiliates.
 The official WhatsApp website can be found at whatsapp.com. "WhatsApp" as well as related names, marks, emblems and images are registered trademarks of their respective owners.
 
-The maintainers of DigiSockets do not in any way condone the use of this application in practices that violate the Terms of Service of WhatsApp. The maintainers of this application call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used.
+The maintainers of Baileys do not in any way condone the use of this application in practices that violate the Terms of Service of WhatsApp. The maintainers of this application call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used.
 Use at your own discretion. Do not spam people with this. We discourage any stalkerware, bulk or automated messaging usage.
 
 ##
 
-- DigiSockets does not require Selenium or any other browser to be interface with WhatsApp Web, it does so directly using a **WebSocket**. 
+- Baileys does not require Selenium or any other browser to be interface with WhatsApp Web, it does so directly using a **WebSocket**. 
 - Not running Selenium or Chromium saves you like **half a gig** of ram :/ 
-- DigiSockets supports interacting with the multi-device & web versions of WhatsApp.
+- Baileys supports interacting with the multi-device & web versions of WhatsApp.
 - Thank you to [@pokearaujo](https://github.com/pokearaujo/multidevice) for writing his observations on the workings of WhatsApp Multi-Device. Also, thank you to [@Sigalor](https://github.com/sigalor/whatsapp-web-reveng) for writing his observations on the workings of WhatsApp Web and thanks to [@Rhymen](https://github.com/Rhymen/go-whatsapp/) for the __go__ implementation.
+
+> [!IMPORTANT]
+> The original repository had to be removed by the original author - we now continue development in this repository here.
+This is the only official repository and is maintained by the community.
+> **Join the Discord [here](https://discord.gg/WeJM5FP9GG)**
  
 ## Example
 
 Do check out & run [example.ts](Example/example.ts) to see an example usage of the library.
 The script covers most common use cases.
 To run the example script, download or clone the repo and then type the following in a terminal:
-1. ``` cd path/to/DigiSockets ```
+1. ``` cd path/to/Baileys ```
 2. ``` yarn ```
 3. ``` yarn example ```
 
 ## Install
 
-yarn add github:Digitalsac-io/DigiSockets
+Use the stable version:
+```
+yarn add @whiskeysockets/baileys
+```
+
+Use the edge version (no guarantee of stability, but latest fixes + features)
+```
+yarn add github:WhiskeySockets/Baileys
 ```
 
 Then import your code using:
 ```ts 
-import makeWASocket from '@digisockets/baileys'
+import makeWASocket from '@whiskeysockets/baileys'
 ```
+
+# Links
+
+- [Discord](https://discord.gg/WeJM5FP9GG)
+- [Docs](https://guide.whiskeysockets.io/)
 
 # Index
 
-- [Important Note](#important-note)
-- [Disclaimer](#disclaimer)
-	- [](#)
-	- [Example](#example)
-	- [Install](#install)
-- [Index](#index)
-	- [Connecting Account](#connecting-account)
-		- [Starting socket with **QR-CODE**](#starting-socket-with-qr-code)
-		- [Starting socket with **Pairing Code**](#starting-socket-with-pairing-code)
-		- [Receive Full History](#receive-full-history)
-	- [Important Notes About Socket Config](#important-notes-about-socket-config)
-		- [Caching Group Metadata (Recommended)](#caching-group-metadata-recommended)
-		- [Improve Retry System \& Decrypt Poll Votes](#improve-retry-system--decrypt-poll-votes)
-		- [Receive Notifications in Whatsapp App](#receive-notifications-in-whatsapp-app)
-	- [Saving \& Restoring Sessions](#saving--restoring-sessions)
-	- [Handling Events](#handling-events)
-		- [Example to Start](#example-to-start)
-		- [Decrypt Poll Votes](#decrypt-poll-votes)
-		- [Summary of Events on First Connection](#summary-of-events-on-first-connection)
-	- [Implementing a Data Store](#implementing-a-data-store)
-	- [Whatsapp IDs Explain](#whatsapp-ids-explain)
-	- [Utility Functions](#utility-functions)
-	- [Sending Messages](#sending-messages)
-		- [Non-Media Messages](#non-media-messages)
-			- [Text Message](#text-message)
-			- [Quote Message (works with all types)](#quote-message-works-with-all-types)
-			- [Mention User (works with most types)](#mention-user-works-with-most-types)
-			- [Forward Messages](#forward-messages)
-			- [Location Message](#location-message)
-			- [Contact Message](#contact-message)
-			- [Reaction Message](#reaction-message)
-			- [Pin Message](#pin-message)
-			- [Poll Message](#poll-message)
-		- [Sending Messages with Link Previews](#sending-messages-with-link-previews)
-		- [Media Messages](#media-messages)
-			- [Gif Message](#gif-message)
-			- [Video Message](#video-message)
-			- [Audio Message](#audio-message)
-			- [Image Message](#image-message)
-			- [View Once Message](#view-once-message)
-	- [Modify Messages](#modify-messages)
-		- [Deleting Messages (for everyone)](#deleting-messages-for-everyone)
-		- [Editing Messages](#editing-messages)
-	- [Manipulating Media Messages](#manipulating-media-messages)
-		- [Thumbnail in Media Messages](#thumbnail-in-media-messages)
-		- [Downloading Media Messages](#downloading-media-messages)
-		- [Re-upload Media Message to Whatsapp](#re-upload-media-message-to-whatsapp)
-	- [Reject Call](#reject-call)
-	- [Send States in Chat](#send-states-in-chat)
-		- [Reading Messages](#reading-messages)
-		- [Update Presence](#update-presence)
-	- [Modifying Chats](#modifying-chats)
-		- [Archive a Chat](#archive-a-chat)
-		- [Mute/Unmute a Chat](#muteunmute-a-chat)
-		- [Mark a Chat Read/Unread](#mark-a-chat-readunread)
-		- [Delete a Message for Me](#delete-a-message-for-me)
-		- [Delete a Chat](#delete-a-chat)
-		- [Pin/Unpin a Chat](#pinunpin-a-chat)
-		- [Star/Unstar a Message](#starunstar-a-message)
-		- [Disappearing Messages](#disappearing-messages)
-	- [User Querys](#user-querys)
-		- [Check If ID Exists in Whatsapp](#check-if-id-exists-in-whatsapp)
-		- [Query Chat History (groups too)](#query-chat-history-groups-too)
-		- [Fetch Status](#fetch-status)
-		- [Fetch Profile Picture (groups too)](#fetch-profile-picture-groups-too)
-		- [Fetch Bussines Profile (such as description or category)](#fetch-bussines-profile-such-as-description-or-category)
-		- [Fetch Someone's Presence (if they're typing or online)](#fetch-someones-presence-if-theyre-typing-or-online)
-	- [Change Profile](#change-profile)
-		- [Change Profile Status](#change-profile-status)
-		- [Change Profile Name](#change-profile-name)
-		- [Change Display Picture (groups too)](#change-display-picture-groups-too)
-		- [Remove display picture (groups too)](#remove-display-picture-groups-too)
-	- [Groups](#groups)
-		- [Create a Group](#create-a-group)
-		- [Add/Remove or Demote/Promote](#addremove-or-demotepromote)
-		- [Change Subject (name)](#change-subject-name)
-		- [Change Description](#change-description)
-		- [Change Settings](#change-settings)
-		- [Leave a Group](#leave-a-group)
-		- [Get Invite Code](#get-invite-code)
-		- [Revoke Invite Code](#revoke-invite-code)
-		- [Join Using Invitation Code](#join-using-invitation-code)
-		- [Get Group Info by Invite Code](#get-group-info-by-invite-code)
-		- [Query Metadata (participants, name, description...)](#query-metadata-participants-name-description)
-		- [Join using `groupInviteMessage`](#join-using-groupinvitemessage)
-		- [Get Request Join List](#get-request-join-list)
-		- [Approve/Reject Request Join](#approvereject-request-join)
-		- [Get All Participating Groups Metadata](#get-all-participating-groups-metadata)
-		- [Toggle Ephemeral](#toggle-ephemeral)
-		- [Change Add Mode](#change-add-mode)
-	- [Privacy](#privacy)
-		- [Block/Unblock User](#blockunblock-user)
-		- [Get Privacy Settings](#get-privacy-settings)
-		- [Get BlockList](#get-blocklist)
-		- [Update LastSeen Privacy](#update-lastseen-privacy)
-		- [Update Online Privacy](#update-online-privacy)
-		- [Update Profile Picture Privacy](#update-profile-picture-privacy)
-		- [Update Status Privacy](#update-status-privacy)
-		- [Update Read Receipts Privacy](#update-read-receipts-privacy)
-		- [Update Groups Add Privacy](#update-groups-add-privacy)
-		- [Update Default Disappearing Mode](#update-default-disappearing-mode)
-	- [Broadcast Lists \& Stories](#broadcast-lists--stories)
-		- [Send Broadcast \& Stories](#send-broadcast--stories)
-		- [Query a Broadcast List's Recipients \& Name](#query-a-broadcast-lists-recipients--name)
-	- [Writing Custom Functionality](#writing-custom-functionality)
-		- [Enabling Debug Level in Baileys Logs](#enabling-debug-level-in-baileys-logs)
-		- [How Whatsapp Communicate With Us](#how-whatsapp-communicate-with-us)
-		- [Register a Callback for Websocket Events](#register-a-callback-for-websocket-events)
-- [License](#license)
+- [Connecting Account](#connecting-account)
+    - [Connect with QR-CODE](#starting-socket-with-qr-code)
+    - [Connect with Pairing Code](#starting-socket-with-pairing-code)
+    - [Receive Full History](#receive-full-history)
+- [Important Notes About Socket Config](#important-notes-about-socket-config)
+    - [Caching Group Metadata (Recommended)](#caching-group-metadata-recommended)
+    - [Improve Retry System & Decrypt Poll Votes](#improve-retry-system--decrypt-poll-votes)
+    - [Receive Notifications in Whatsapp App](#receive-notifications-in-whatsapp-app)
+
+- [Save Auth Info](#saving--restoring-sessions)
+- [Handling Events](#handling-events)
+    - [Example to Start](#example-to-start)
+    - [Decrypt Poll Votes](#decrypt-poll-votes)
+    - [Summary of Events on First Connection](#summary-of-events-on-first-connection)
+- [Implementing a Data Store](#implementing-a-data-store)
+- [Whatsapp IDs Explain](#whatsapp-ids-explain)
+- [Utility Functions](#utility-functions)
+- [Sending Messages](#sending-messages)
+    - [Non-Media Messages](#non-media-messages)
+        - [Text Message](#text-message)
+        - [Quote Message](#quote-message-works-with-all-types)
+        - [Mention User](#mention-user-works-with-most-types)
+        - [Forward Messages](#forward-messages)
+        - [Location Message](#location-message)
+        - [Contact Message](#contact-message)
+        - [Reaction Message](#reaction-message)
+        - [Pin Message](#pin-message)
+        - [Poll Message](#poll-message)
+    - [Sending with Link Preview](#sending-messages-with-link-previews)
+    - [Media Messages](#media-messages)
+        - [Gif Message](#gif-message)
+        - [Video Message](#video-message)
+        - [Audio Message](#audio-message)
+        - [Image Message](#image-message)
+        - [ViewOnce Message](#view-once-message)
+- [Modify Messages](#modify-messages)
+    - [Delete Messages (for everyone)](#deleting-messages-for-everyone)
+    - [Edit Messages](#editing-messages)
+- [Manipulating Media Messages](#manipulating-media-messages)
+    - [Thumbnail in Media Messages](#thumbnail-in-media-messages)
+    - [Downloading Media Messages](#downloading-media-messages)
+    - [Re-upload Media Message to Whatsapp](#re-upload-media-message-to-whatsapp)
+- [Reject Call](#reject-call)
+- [Send States in Chat](#send-states-in-chat)
+    - [Reading Messages](#reading-messages)
+    - [Update Presence](#update-presence)
+- [Modifying Chats](#modifying-chats)
+    - [Archive a Chat](#archive-a-chat)
+    - [Mute/Unmute a Chat](#muteunmute-a-chat)
+    - [Mark a Chat Read/Unread](#mark-a-chat-readunread)
+    - [Delete a Message for Me](#delete-a-message-for-me)
+    - [Delete a Chat](#delete-a-chat)
+    - [Star/Unstar a Message](#starunstar-a-message)
+    - [Disappearing Messages](#disappearing-messages)
+- [User Querys](#user-querys)
+    - [Check If ID Exists in Whatsapp](#check-if-id-exists-in-whatsapp)
+    - [Query Chat History (groups too)](#query-chat-history-groups-too)
+    - [Fetch Status](#fetch-status)
+    - [Fetch Profile Picture (groups too)](#fetch-profile-picture-groups-too)
+    - [Fetch Bussines Profile (such as description or category)](#fetch-bussines-profile-such-as-description-or-category)
+    - [Fetch Someone's Presence (if they're typing or online)](#fetch-someones-presence-if-theyre-typing-or-online)
+- [Change Profile](#change-profile)
+    - [Change Profile Status](#change-profile-status)
+    - [Change Profile Name](#change-profile-name)
+    - [Change Display Picture (groups too)](#change-display-picture-groups-too)
+    - [Remove display picture (groups too)](#remove-display-picture-groups-too)
+- [Groups](#groups)
+    - [Create a Group](#create-a-group)
+    - [Add/Remove or Demote/Promote](#addremove-or-demotepromote)
+    - [Change Subject (name)](#change-subject-name)
+    - [Change Description](#change-description)
+    - [Change Settings](#change-settings)
+    - [Leave a Group](#leave-a-group)
+    - [Get Invite Code](#get-invite-code)
+    - [Revoke Invite Code](#revoke-invite-code)
+    - [Join Using Invitation Code](#join-using-invitation-code)
+    - [Get Group Info by Invite Code](#get-group-info-by-invite-code)
+    - [Query Metadata (participants, name, description...)](#query-metadata-participants-name-description)
+    - [Join using groupInviteMessage](#join-using-groupinvitemessage)
+    - [Get Request Join List](#get-request-join-list)
+    - [Approve/Reject Request Join](#approvereject-request-join)
+    - [Get All Participating Groups Metadata](#get-all-participating-groups-metadata)
+    - [Toggle Ephemeral](#toggle-ephemeral)
+    - [Change Add Mode](#change-add-mode)
+- [Privacy](#privacy)
+    - [Block/Unblock User](#blockunblock-user)
+    - [Get Privacy Settings](#get-privacy-settings)
+    - [Get BlockList](#get-blocklist)
+    - [Update LastSeen Privacy](#update-lastseen-privacy)
+    - [Update Online Privacy](#update-online-privacy)
+    - [Update Profile Picture Privacy](#update-profile-picture-privacy)
+    - [Update Status Privacy](#update-status-privacy)
+    - [Update Read Receipts Privacy](#update-read-receipts-privacy)
+    - [Update Groups Add Privacy](#update-groups-add-privacy)
+    - [Update Default Disappearing Mode](#update-default-disappearing-mode)
+- [Broadcast Lists & Stories](#broadcast-lists--stories)
+    - [Send Broadcast & Stories](#send-broadcast--stories)
+    - [Query a Broadcast List's Recipients & Name](#query-a-broadcast-lists-recipients--name)
+- [Writing Custom Functionality](#writing-custom-functionality)
+    - [Enabling Debug Level in Baileys Logs](#enabling-debug-level-in-baileys-logs)
+    - [How Whatsapp Communicate With Us](#how-whatsapp-communicate-with-us)
+    - [Register a Callback for Websocket Events](#register-a-callback-for-websocket-events)
 
 ## Connecting Account
 
@@ -180,15 +193,15 @@ WhatsApp provides a multi-device API that allows Baileys to be authenticated as 
 > **[Here](#example-to-start) is a simple example of event handling**
 
 > [!TIP]
-> **You can see all supported socket configs [here](https://baileys.digitalsac.io/types/SocketConfig.html) (Recommended)**
+> **You can see all supported socket configs [here](https://baileys.whiskeysockets.io/types/SocketConfig.html) (Recommended)**
 
 ### Starting socket with **QR-CODE**
 
 > [!TIP]
-> You can customize browser name if you connect with **QR-CODE**, with `Browser` constant, we have some browsers config, **see [here](https://baileys.digitalsac.io/types/BrowsersMap.html)**
+> You can customize browser name if you connect with **QR-CODE**, with `Browser` constant, we have some browsers config, **see [here](https://baileys.whiskeysockets.io/types/BrowsersMap.html)**
 
 ```ts
-import makeWASocket from '@digisockets/baileys'
+import makeWASocket from '@whiskeysockets/baileys'
 
 const sock = makeWASocket({
     // can provide additional config here
@@ -208,7 +221,7 @@ If the connection is successful, you will see a QR code printed on your terminal
 The phone number can't have `+` or `()` or `-`, only numbers, you must provide country code
 
 ```ts
-import makeWASocket from '@digisockets/baileys'
+import makeWASocket from '@whiskeysockets/baileys'
 
 const sock = makeWASocket({
     // can provide additional config here
@@ -281,7 +294,7 @@ You obviously don't want to keep scanning the QR code every time you want to con
 
 So, you can load the credentials to log back in:
 ```ts
-import makeWASocket, { useMultiFileAuthState } from '@digisockets/baileys'
+import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys'
 
 const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
 
@@ -305,7 +318,7 @@ sock.ev.on('creds.update', saveCreds)
 They're all nicely typed up, so you shouldn't have any issues with an Intellisense editor like VS Code.
 
 > [!IMPORTANT]
-> **The events are [these](https://baileys.digitalsac.io/types/BaileysEventMap.html)**, it's important you see all events
+> **The events are [these](https://baileys.whiskeysockets.io/types/BaileysEventMap.html)**, it's important you see all events
 
 You can listen to these events like this:
 ```ts
@@ -320,8 +333,11 @@ sock.ev.on('messages.upsert', ({ messages }) => {
 > [!NOTE]
 > This example includes basic auth storage too
 
+> [!NOTE]
+> For reliable serialization of the authentication state, especially when storing as JSON, always use the BufferJSON utility.
+
 ```ts
-import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@digisockets/baileys'
+import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 
 async function connectToWhatsApp () {
@@ -403,7 +419,7 @@ sock.ev.on('messages.update', event => {
 It can be used as follows:
 
 ```ts
-import makeWASocket, { makeInMemoryStore } from '@digisockets/baileys'
+import makeWASocket, { makeInMemoryStore } from '@whiskeysockets/baileys'
 // the store maintains the data of the WA connection in memory
 // can be written out to a file & read from it
 const store = makeInMemoryStore({ })
@@ -452,8 +468,8 @@ The store also provides some simple functions such as `loadMessages` that utiliz
 ## Sending Messages
 
 - Send all types of messages with a single function
-    - **[Here](https://baileys.digitalsac.io/types/AnyMessageContent.html) you can see all message contents supported, like text message**
-    - **[Here](https://baileys.digitalsac.io/types/MiscMessageGenerationOptions.html) you can see all options supported, like quote message**
+    - **[Here](https://baileys.whiskeysockets.io/types/AnyMessageContent.html) you can see all message contents supported, like text message**
+    - **[Here](https://baileys.whiskeysockets.io/types/MiscMessageGenerationOptions.html) you can see all options supported, like quote message**
 
     ```ts
     const jid: string
@@ -488,7 +504,7 @@ await sock.sendMessage(
 ```
 
 #### Forward Messages
-- You need to have message object, can be retrieved from [store](#implementing-a-data-store) or use a [message](https://baileys.digitalsac.io/types/WAMessage.html) object
+- You need to have message object, can be retrieved from [store](#implementing-a-data-store) or use a [message](https://baileys.whiskeysockets.io/types/WAMessage.html) object
 ```ts
 const msg = getMessageFromStore() // implement this on your end
 await sock.sendMessage(jid, { forward: msg }) // WA forward the message!
@@ -541,7 +557,7 @@ await sock.sendMessage(
 ```
 
 #### Pin Message
-- You need to pass the key of message, you can retrieve from [store](#implementing-a-data-store) or use a [key](https://baileys.digitalsac.io/types/WAMessageKey.html) object
+- You need to pass the key of message, you can retrieve from [store](#implementing-a-data-store) or use a [key](https://baileys.whiskeysockets.io/types/WAMessageKey.html) object
 
 - Time can be:
 
@@ -589,7 +605,7 @@ await sock.sendMessage(
 await sock.sendMessage(
     jid,
     {
-        text: 'Hi, this was sent using https://github.com/digitalsac-io/digisockets'
+        text: 'Hi, this was sent using https://github.com/whiskeysockets/baileys'
     }
 )
 ```
@@ -599,7 +615,7 @@ await sock.sendMessage(
 Sending media (video, stickers, images) is easier & more efficient than ever.
 
 > [!NOTE]
-> In media messages, you can pass `{ stream: Stream }` or `{ url: Url }` or `Buffer` directly, you can see more [here](https://baileys.digitalsac.io/types/WAMediaUpload.html)
+> In media messages, you can pass `{ stream: Stream }` or `{ url: Url }` or `Buffer` directly, you can see more [here](https://baileys.whiskeysockets.io/types/WAMediaUpload.html)
 
 - When specifying a media url, Baileys never loads the entire buffer into memory; it even encrypts the media as a readable stream.
 
@@ -719,7 +735,7 @@ await sock.sendMessage(jid, {
 If you want to save the media you received
 ```ts
 import { createWriteStream } from 'fs'
-import { downloadMediaMessage, getContentType } from '@digisockets/baileys'
+import { downloadMediaMessage, getContentType } from '@whiskeysockets/baileys'
 
 sock.ev.on('messages.upsert', async ({ [m] }) => {
     if (!m.message) return // if there is no text or media message
@@ -764,7 +780,7 @@ await sock.rejectCall(callId, callFrom)
 ## Send States in Chat
 
 ### Reading Messages
-- A set of message [keys](https://baileys.digitalsac.io/types/WAMessageKey.html) must be explicitly marked read now.
+- A set of message [keys](https://baileys.whiskeysockets.io/types/WAMessageKey.html) must be explicitly marked read now.
 - You cannot mark an entire 'chat' read as it were with Baileys Web.
 This means you have to keep track of unread messages.
 
@@ -779,7 +795,7 @@ On a `WAMessage`, the `messageID` can be accessed using ```messageID = message.k
 
 ### Update Presence
 
-- ``` presence ``` can be one of [these](https://baileys.digitalsac.io/types/WAPresence.html)
+- ``` presence ``` can be one of [these](https://baileys.whiskeysockets.io/types/WAPresence.html)
 - The presence expires after about 10 seconds.
 - This lets the person/group with `jid` know whether you're online, offline, typing etc. 
 
@@ -981,7 +997,7 @@ await sock.updateProfileName('My name')
 - To change your display picture or a group's
 
 > [!NOTE]
-> Like media messages, you can pass `{ stream: Stream }` or `{ url: Url }` or `Buffer` directly, you can see more [here](https://baileys.digitalsac.io/types/WAMediaUpload.html)
+> Like media messages, you can pass `{ stream: Stream }` or `{ url: Url }` or `Buffer` directly, you can see more [here](https://baileys.whiskeysockets.io/types/WAMediaUpload.html)
 
 ```ts
 await sock.updateProfilePicture(jid, { url: './new-profile-picture.jpeg' })
@@ -1193,8 +1209,8 @@ await sock.sendMessage(
     }
 )
 ```
-- Message body can be a `extendedTextMessage` or `imageMessage` or `videoMessage` or `voiceMessage`, see [here](https://baileys.digitalsac.io/types/AnyRegularMessageContent.html)
-- You can add `backgroundColor` and other options in the message options, see [here](https://baileys.digitalsac.io/types/MiscMessageGenerationOptions.html)
+- Message body can be a `extendedTextMessage` or `imageMessage` or `videoMessage` or `voiceMessage`, see [here](https://baileys.whiskeysockets.io/types/AnyRegularMessageContent.html)
+- You can add `backgroundColor` and other options in the message options, see [here](https://baileys.whiskeysockets.io/types/MiscMessageGenerationOptions.html)
 - `broadcast: true` enables broadcast mode
 - `statusJidList`: a list of people that you can get which you need to provide, which are the people who will get this status message.
 
@@ -1278,7 +1294,7 @@ sock.ws.on('CB:edge_routing,id:abcd,routing_info', (node: BinaryNode) => { })
 ```
 
 # License
-Copyright (c) 2025 DigiSockets
+Copyright (c) 2025 Rajeh Taher/WhiskeySockets
 
 Licensed under the MIT License:
 Permission is hereby granted, free of charge, to any person obtaining a copy

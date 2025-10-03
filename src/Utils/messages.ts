@@ -1,5 +1,4 @@
 import { Boom } from '@hapi/boom'
-import axios from 'axios'
 import { randomBytes } from 'crypto'
 import { promises as fs } from 'fs'
 import { type Transform } from 'stream'
@@ -160,7 +159,7 @@ export const prepareWAMessageMedia = async (
 		if (mediaBuff) {
 			logger?.debug({ cacheableKey }, 'got media cache hit')
 
-			const obj = decodeAndHydrate(WAProto.Message, mediaBuff)
+			const obj = decodeAndHydrate(proto.Message, mediaBuff)
 			const key = `${mediaType}Message`
 
 			Object.assign(obj[key as keyof proto.Message]!, { ...uploadData, media: undefined })
@@ -204,6 +203,10 @@ export const prepareWAMessageMedia = async (
 			delete obj.videoMessage
 		}
 
+		if (obj.stickerMessage) {
+			obj.stickerMessage.stickerSentTs = Date.now()
+		}
+
 		if (cacheableKey) {
 			logger?.debug({ cacheableKey }, 'set cache')
 			await options.mediaCache!.set(cacheableKey, WAProto.Message.encode(obj).finish())
@@ -220,7 +223,7 @@ export const prepareWAMessageMedia = async (
 	const requiresAudioTransformation = options.transformAudio && mediaType === 'audio' && uploadData.ptt === true
 	const requiresOriginalForSomeProcessing = requiresDurationComputation || requiresThumbnailComputation || requiresAudioTransformation
 	
-	// üîß DEBUG: Log das condi√ß√µes para convers√£o de √°udio
+	// ?? DEBUG: Log das condiÁıes para convers„o de ·udio
 	if (mediaType === 'audio') {
 		logger?.debug({
 			mediaType,
@@ -228,16 +231,16 @@ export const prepareWAMessageMedia = async (
 			ptt: uploadData.ptt,
 			requiresAudioTransformation,
 			originalMimetype: uploadData.mimetype
-		}, 'üéµ AUDIO DEBUG: Verificando condi√ß√µes para convers√£o PTT')
+		}, '?? AUDIO DEBUG: Verificando condiÁıes para convers„o PTT')
 	}
 	
 	// Track converted file path for cleanup
 	let convertedFilePath: string | undefined
 	
-	// üéµ IMPORTANTE: Convers√£o deve acontecer ANTES da encripta√ß√£o e upload!
+	// ?? IMPORTANTE: Convers„o deve acontecer ANTES da encriptaÁ„o e upload!
 	if (requiresAudioTransformation) {
 		try {
-			logger?.debug('üéµ AUDIO CONVERSION: Iniciando convers√£o ANTES do upload')
+			logger?.debug('?? AUDIO CONVERSION: Iniciando convers„o ANTES do upload')
 			
 			// First save the original media to a temp file
 			const tempMedia = await encryptedStream(
@@ -257,11 +260,11 @@ export const prepareWAMessageMedia = async (
 				originalPath: tempMedia.originalFilePath,
 				convertedPath: convertedFilePath,
 				originalMimetype: uploadData.mimetype
-			}, 'üéµ AUDIO CONVERSION: Convertendo ANTES do upload')
+			}, '?? AUDIO CONVERSION: Convertendo ANTES do upload')
 			
 			await convertAudioToPTTFormat(tempMedia.originalFilePath!, convertedFilePath, logger)
 			
-			// üéµ Verificar qual arquivo foi realmente criado (pode ter extens√£o diferente)
+			// ?? Verificar qual arquivo foi realmente criado (pode ter extens„o diferente)
 			const fs = await import('fs/promises')
 			const possiblePaths = [
 				convertedFilePath,                                      // .ogg original
@@ -275,7 +278,7 @@ export const prepareWAMessageMedia = async (
 					actualConvertedPath = path
 					break
 				} catch {
-					// arquivo n√£o existe, tentar pr√≥ximo
+					// arquivo n„o existe, tentar prÛximo
 				}
 			}
 			
@@ -284,7 +287,7 @@ export const prepareWAMessageMedia = async (
 			convertedFilePath = actualConvertedPath // Atualizar para cleanup
 			const oldMimetype = uploadData.mimetype
 			
-			// üéµ Definir mimetype baseado na extens√£o do arquivo convertido
+			// ?? Definir mimetype baseado na extens„o do arquivo convertido
 			if (actualConvertedPath.endsWith('.ogg')) {
 				uploadData.mimetype = 'audio/ogg; codecs=opus'
 			} else if (actualConvertedPath.endsWith('.m4a')) {
@@ -293,7 +296,7 @@ export const prepareWAMessageMedia = async (
 				uploadData.mimetype = 'audio/ogg; codecs=opus' // fallback
 			}
 			
-			// üéµ IMPORTANTE: For√ßar propriedades espec√≠ficas para PTT no WhatsApp
+			// ?? IMPORTANTE: ForÁar propriedades especÌficas para PTT no WhatsApp
 			uploadData.ptt = true
 			
 			logger?.debug({ 
@@ -304,18 +307,18 @@ export const prepareWAMessageMedia = async (
 				ptt: uploadData.ptt,
 				codecUsed: actualConvertedPath.endsWith('.ogg') ? 'opus' : 'ipod',
 				extensionUsed: actualConvertedPath.split('.').pop()
-			}, 'üéµ AUDIO CONVERSION: ‚úÖ PR√â-CONVERS√ÉO conclu√≠da! Agora vai para upload')
+			}, '?? AUDIO CONVERSION: ? PR…-CONVERS√O concluÌda! Agora vai para upload')
 			
 			// Clean up temp original file
 			try {
 				await fs.unlink(tempMedia.originalFilePath!)
 				await fs.unlink(tempMedia.encFilePath)
 			} catch (error) {
-				logger?.warn('Falha ao limpar arquivos tempor√°rios da pr√©-convers√£o')
+				logger?.warn('Falha ao limpar arquivos tempor·rios da prÈ-convers„o')
 			}
 			
 		} catch (error) {
-			logger?.warn({ trace: (error as any).stack }, '‚ùå AUDIO PRE-CONVERSION: Falha na convers√£o, continuando com original')
+			logger?.warn({ trace: (error as any).stack }, '? AUDIO PRE-CONVERSION: Falha na convers„o, continuando com original')
 			convertedFilePath = undefined
 		}
 	}
@@ -374,7 +377,7 @@ export const prepareWAMessageMedia = async (
 					logger?.debug('computed backgroundColor audio status')
 				}
 
-				// ‚úÖ Convers√£o j√° foi feita ANTES do upload - removida daqui
+				// ? Convers„o j· foi feita ANTES do upload - removida daqui
 			} catch (error) {
 				logger?.warn({ trace: (error as any).stack }, 'failed to obtain extra info')
 			}
@@ -418,10 +421,6 @@ export const prepareWAMessageMedia = async (
 	if (uploadData.ptv) {
 		obj.ptvMessage = obj.videoMessage
 		delete obj.videoMessage
-	}
-
-	if (obj.stickerMessage) {
-		obj.stickerMessage.stickerSentTs = Date.now()
 	}
 
 	if (cacheableKey) {
@@ -571,9 +570,10 @@ export const generateWAMessageContent = async (
 		if (options.getProfilePicUrl) {
 			const pfpUrl = await options.getProfilePicUrl(message.groupInvite.jid, 'preview')
 			if (pfpUrl) {
-				const resp = await axios.get(pfpUrl, { responseType: 'arraybuffer' })
-				if (resp.status === 200) {
-					m.groupInviteMessage.jpegThumbnail = resp.data
+				const resp = await fetch(pfpUrl, { method: 'GET', dispatcher: options?.options?.dispatcher })
+				if (resp.ok) {
+					const buf = Buffer.from(await resp.arrayBuffer())
+					m.groupInviteMessage.jpegThumbnail = buf
 				}
 			}
 		}
@@ -672,7 +672,7 @@ export const generateWAMessageContent = async (
 				//poll v3 is for single select polls
 				m.pollCreationMessageV3 = pollCreationMessage
 			} else {
-				// poll v3 for multiple choice polls
+				// poll for multiple choice polls
 				m.pollCreationMessage = pollCreationMessage
 			}
 		}
@@ -809,7 +809,7 @@ export const generateWAMessageFromContent = (
 
 	if (quoted && !isJidNewsletter(jid)) {
 		const participant = quoted.key.fromMe
-			? userJid
+			? userJid // TODO: Add support for LIDs
 			: quoted.participant || quoted.key.participant || quoted.key.remoteJid
 
 		let quotedMsg = normalizeMessageContent(quoted.message)!
@@ -869,7 +869,7 @@ export const generateWAMessageFromContent = (
 		message: message,
 		messageTimestamp: timestamp,
 		messageStubParameters: [],
-		participant: isJidGroup(jid) || isJidStatusBroadcast(jid) ? userJid : undefined,
+		participant: isJidGroup(jid) || isJidStatusBroadcast(jid) ? userJid : undefined, // TODO: Add support for LIDs
 		status: WAMessageStatus.PENDING
 	}
 	return WAProto.WebMessageInfo.create(messageJSON)
@@ -1114,8 +1114,8 @@ export const downloadMediaMessage = async <Type extends 'buffer' | 'stream'>(
 	const result = await downloadMsg().catch(async error => {
 		if (
 			ctx &&
-			axios.isAxiosError(error) && // check if the message requires a reupload
-			REUPLOAD_REQUIRED_STATUS.includes(error.response?.status!)
+			typeof error?.status === 'number' && // treat errors with status as HTTP failures requiring reupload
+			REUPLOAD_REQUIRED_STATUS.includes(error.status as number)
 		) {
 			ctx.logger.info({ key: message.key }, 'sending reupload media request...')
 			// request reupload

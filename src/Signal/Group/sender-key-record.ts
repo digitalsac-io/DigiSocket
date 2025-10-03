@@ -64,7 +64,6 @@ export class SenderKeyRecord {
 	static deserialize(data: Uint8Array): SenderKeyRecord {
 		const str = Buffer.from(data).toString('utf-8')
 		const parsed = JSON.parse(str, BufferJSON.reviver)
-
 		return new SenderKeyRecord(parsed)
 	}
 }
