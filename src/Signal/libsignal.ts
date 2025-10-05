@@ -38,7 +38,7 @@ export function makeLibSignalRepository(
 			}, group)
 		},
 		async processSenderKeyDistributionMessage({ item, authorJid }) {
-			const builder = new GroupSessionBuilder(storage as any)
+			const builder = new GroupSessionBuilder(storage)
 			if (!item.groupId) {
 				throw new Error('Group ID is required for sender key distribution message')
 			}
@@ -103,9 +103,10 @@ export function makeLibSignalRepository(
 				return { type, ciphertext: Buffer.from(body, 'binary') }
 			}, jid)
 		},
+
 		async encryptGroupMessage({ group, meId, data }) {
 			const senderName = jidToSignalSenderKeyName(group, meId)
-			const builder = new GroupSessionBuilder(storage as any)
+			const builder = new GroupSessionBuilder(storage)
 
 			const senderNameStr = senderName.toString()
 

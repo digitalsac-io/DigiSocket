@@ -1,10 +1,11 @@
+import type { AxiosRequestConfig } from 'axios'
 import type { Agent } from 'https'
 import type { URL } from 'url'
 import { proto } from '../../WAProto/index.js'
 import type { ILogger } from '../Utils/logger'
 import type { AuthenticationState, LIDMapping, SignalAuthState, TransactionCapabilityOptions } from './Auth'
 import type { GroupMetadata } from './GroupMetadata'
-import { type MediaConnInfo } from './Message'
+import { type MediaConnInfo, type WAMessageKey } from './Message'
 import type { SignalRepositoryWithLIDStore } from './Signal'
 
 export type WAVersion = [number, number, number]
@@ -132,14 +133,14 @@ export type SocketConfig = {
 		snapshot: boolean
 	}
 
-	/** options for HTTP fetch requests */
-	options: RequestInit
+	/** options for axios */
+	options: AxiosRequestConfig<{}>
 	/**
 	 * fetch a message from your store
 	 * implement this so that messages failed to send
 	 * (solves the "this message can take a while" issue) can be retried
 	 * */
-	getMessage: (key: proto.IMessageKey) => Promise<proto.IMessage | undefined>
+	getMessage: (key: WAMessageKey) => Promise<proto.IMessage | undefined>
 
 	/** cached group metadata, use to prevent redundant requests to WA & speed up msg sending */
 	cachedGroupMetadata: (jid: string) => Promise<GroupMetadata | undefined>

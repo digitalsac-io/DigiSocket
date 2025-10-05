@@ -1,4 +1,5 @@
 import { Boom } from '@hapi/boom'
+import type { AxiosRequestConfig } from 'axios'
 import { proto } from '../../WAProto/index.js'
 import type {
 	BaileysEventEmitter,
@@ -24,7 +25,6 @@ import { toNumber } from './generics'
 import type { ILogger } from './logger'
 import { LT_HASH_ANTI_TAMPERING } from './lt-hash'
 import { downloadContentFromMessage } from './messages-media'
-import { decodeAndHydrate } from './proto-utils'
 
 type FetchAppStateSyncKey = (keyId: string) => Promise<proto.Message.IAppStateSyncKeyData | null | undefined>
 
@@ -154,7 +154,7 @@ export const encodeSyncdPatch = async (
 	state = { ...state, indexValueMap: { ...state.indexValueMap } }
 
 	const indexBuffer = Buffer.from(JSON.stringify(index))
-	const dataProto = proto.SyncActionData.create({
+	const dataProto = proto.SyncActionData.fromObject({
 		index: indexBuffer,
 		value: syncAction,
 		padding: new Uint8Array(0),
@@ -233,16 +233,16 @@ export const decodeSyncdMutations = async (
 		}
 
 		const result = aesDecrypt(encContent, key.valueEncryptionKey)
-		const syncAction = decodeAndHydrate(proto.SyncActionData, result)
+		const syncAction = proto.SyncActionData.decode(result)
 
 		if (validateMacs) {
-			const hmac = hmacSign(syncAction.index, key.indexKey)
+			const hmac = hmacSign(syncAction.index!, key.indexKey)
 			if (Buffer.compare(hmac, record.index!.blob!) !== 0) {
 				throw new Boom('HMAC index verification failed')
 			}
 		}
 
-		const indexStr = Buffer.from(syncAction.index).toString()
+		const indexStr = Buffer.from(syncAction.index!).toString()
 		onMutation({ syncAction, index: JSON.parse(indexStr) })
 
 		ltGenerator.mix({
@@ -302,7 +302,7 @@ export const decodeSyncdPatch = async (
 	return result
 }
 
-export const extractSyncdPatches = async (result: BinaryNode, options: RequestInit) => {
+export const extractSyncdPatches = async (result: BinaryNode, options: AxiosRequestConfig<{}>) => {
 	const syncNode = getBinaryNodeChild(result, 'sync')
 	const collectionNodes = getBinaryNodeChildren(syncNode, 'collection')
 
@@ -327,9 +327,9 @@ export const extractSyncdPatches = async (result: BinaryNode, options: RequestIn
 					snapshotNode.content = Buffer.from(Object.values(snapshotNode.content))
 				}
 
-				const blobRef = decodeAndHydrate(proto.ExternalBlobReference, snapshotNode.content as Buffer)
+				const blobRef = proto.ExternalBlobReference.decode(snapshotNode.content as Buffer)
 				const data = await downloadExternalBlob(blobRef, options)
-				snapshot = decodeAndHydrate(proto.SyncdSnapshot, data)
+				snapshot = proto.SyncdSnapshot.decode(data)
 			}
 
 			for (let { content } of patches) {
@@ -338,7 +338,7 @@ export const extractSyncdPatches = async (result: BinaryNode, options: RequestIn
 						content = Buffer.from(Object.values(content))
 					}
 
-					const syncd = decodeAndHydrate(proto.SyncdPatch, content as Uint8Array)
+					const syncd = proto.SyncdPatch.decode(content as Uint8Array)
 					if (!syncd.version) {
 						syncd.version = { version: +collectionNode.attrs.version! + 1 }
 					}
@@ -354,7 +354,7 @@ export const extractSyncdPatches = async (result: BinaryNode, options: RequestIn
 	return final
 }
 
-export const downloadExternalBlob = async (blob: proto.IExternalBlobReference, options: RequestInit) => {
+export const downloadExternalBlob = async (blob: proto.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
 	const stream = await downloadContentFromMessage(blob, 'md-app-state', { options })
 	const bufferArray: Buffer[] = []
 	for await (const chunk of stream) {
@@ -364,9 +364,9 @@ export const downloadExternalBlob = async (blob: proto.IExternalBlobReference, o
 	return Buffer.concat(bufferArray)
 }
 
-export const downloadExternalPatch = async (blob: proto.IExternalBlobReference, options: RequestInit) => {
+export const downloadExternalPatch = async (blob: proto.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
 	const buffer = await downloadExternalBlob(blob, options)
-	const syncData = decodeAndHydrate(proto.SyncdMutations, buffer)
+	const syncData = proto.SyncdMutations.decode(buffer)
 	return syncData
 }
 
@@ -423,7 +423,7 @@ export const decodePatches = async (
 	syncds: proto.ISyncdPatch[],
 	initial: LTHashState,
 	getAppStateSyncKey: FetchAppStateSyncKey,
-	options: RequestInit,
+	options: AxiosRequestConfig<{}>,
 	minimumVersionNumber?: number,
 	logger?: ILogger,
 	validateMacs = true

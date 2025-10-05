@@ -1,9 +1,10 @@
 import { Boom } from '@hapi/boom'
+import axios, { type AxiosRequestConfig } from 'axios'
 import { exec } from 'child_process'
 import ffmpeg from 'fluent-ffmpeg'
-// @ts-ignore - ffmpeg-static não tem tipos TypeScript
+// @ts-ignore - ffmpeg-static nï¿½o tem tipos TypeScript
 import ffmpegPath from 'ffmpeg-static'
-// @ts-ignore - @ffprobe-installer/ffprobe não tem tipos TypeScript
+// @ts-ignore - @ffprobe-installer/ffprobe nï¿½o tem tipos TypeScript
 import ffprobePath from '@ffprobe-installer/ffprobe'
 import * as Crypto from 'crypto'
 import { once } from 'events'
@@ -25,13 +26,13 @@ import type {
 	WAGenericMediaMessage,
 	WAMediaUpload,
 	WAMediaUploadFunction,
-	WAMessageContent
+	WAMessageContent,
+	WAMessageKey
 } from '../Types'
 import { type BinaryNode, getBinaryNodeChild, getBinaryNodeChildBuffer, jidNormalizedUser } from '../WABinary'
 import { aesDecryptGCM, aesEncryptGCM, hkdf } from './crypto'
 import { generateMessageIDV2 } from './generics'
 import type { ILogger } from './logger'
-import { decodeAndHydrate } from './proto-utils'
 
 const getTmpFilesDirectory = () => tmpdir()
 
@@ -363,7 +364,7 @@ export const toBuffer = async (stream: Readable) => {
 	return Buffer.concat(chunks)
 }
 
-export const getStream = async (item: WAMediaUpload, opts?: RequestInit & { maxContentLength?: number }) => {
+export const getStream = async (item: WAMediaUpload, opts?: AxiosRequestConfig) => {
 	if (Buffer.isBuffer(item)) {
 		return { stream: toReadable(item), type: 'buffer' } as const
 	}
@@ -380,7 +381,7 @@ export const getStream = async (item: WAMediaUpload, opts?: RequestInit & { maxC
 	}
 
 	if (urlStr.startsWith('http://') || urlStr.startsWith('https://')) {
-		return { stream: await getHttpStream(item.url, opts), type: 'remote' } as const
+		return { stream: await getHttpStream(item.url, opts as any), type: 'remote' } as const
 	}
 
 	return { stream: createReadStream(item.url), type: 'file' } as const
@@ -424,24 +425,15 @@ export async function generateThumbnail(
 	}
 }
 
-export const getHttpStream = async (url: string | URL, options: RequestInit & { isStream?: true } = {}) => {
-	const response = await fetch(url.toString(), {
-		dispatcher: options.dispatcher,
-		method: 'GET',
-		headers: options.headers as HeadersInit
-	})
-	if (!response.ok) {
-		throw new Boom(`Failed to fetch stream from ${url}`, { statusCode: response.status, data: { url } })
-	}
-
-	// @ts-ignore Node18+ Readable.fromWeb exists
-	return Readable.fromWeb(response.body as any)
+export const getHttpStream = async (url: string | URL, options: AxiosRequestConfig & { isStream?: true } = {}) => {
+	const fetched = await axios.get(url.toString(), { ...options, responseType: 'stream' })
+	return fetched.data as Readable
 }
 
 type EncryptedStreamOptions = {
 	saveOriginalFileIfRequired?: boolean
 	logger?: ILogger
-	opts?: RequestInit
+	opts?: AxiosRequestConfig
 }
 
 export const encryptedStream = async (
@@ -449,7 +441,7 @@ export const encryptedStream = async (
 	mediaType: MediaType,
 	{ logger, saveOriginalFileIfRequired, opts }: EncryptedStreamOptions = {}
 ) => {
-	const { stream, type } = await getStream(media, opts)
+	const { stream, type } = await getStream(media, opts as any)
 
 	logger?.debug('fetched media stream')
 
@@ -561,7 +553,7 @@ const toSmallestChunkSize = (num: number) => {
 export type MediaDownloadOptions = {
 	startByte?: number
 	endByte?: number
-	options?: RequestInit
+	options?: AxiosRequestConfig<{}>
 }
 
 export const getUrlFromDirectPath = (directPath: string) => `https://${DEF_HOST}${directPath}`
@@ -607,13 +599,8 @@ export const downloadEncryptedContent = async (
 
 	const endChunk = endByte ? toSmallestChunkSize(endByte || 0) + AES_CHUNK_SIZE : undefined
 
-	const headersInit = options?.headers ? options.headers : undefined
-	const headers: Record<string, string> = {
-		...(headersInit
-			? Array.isArray(headersInit)
-				? Object.fromEntries(headersInit)
-				: (headersInit as Record<string, string>)
-			: {}),
+	const headers: AxiosRequestConfig['headers'] = {
+		...(options?.headers || {}),
 		Origin: DEFAULT_ORIGIN
 	}
 	if (startChunk || endChunk) {
@@ -626,7 +613,9 @@ export const downloadEncryptedContent = async (
 	// download the message
 	const fetched = await getHttpStream(downloadUrl, {
 		...(options || {}),
-		headers
+		headers,
+		maxBodyLength: Infinity,
+		maxContentLength: Infinity
 	})
 
 	let remainingBytes = Buffer.from([])
@@ -723,32 +712,21 @@ export const getWAUploadToServer = (
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			let result: any
 			try {
-				const stream = createReadStream(filePath)
-				const response = await fetch(url, {
-					dispatcher: fetchAgent,
-					method: 'POST',
-					body: stream as any,
+				const body = await axios.post(url, createReadStream(filePath), {
+					...(options as any),
+					maxRedirects: 0,
 					headers: {
-						...(() => {
-							const hdrs = options?.headers
-							if (!hdrs) return {}
-							return Array.isArray(hdrs) ? Object.fromEntries(hdrs) : (hdrs as Record<string, string>)
-						})(),
+						...(options.headers || {}),
 						'Content-Type': 'application/octet-stream',
 						Origin: DEFAULT_ORIGIN
 					},
-					duplex: 'half',
-					// Note: custom agents/proxy require undici Agent; omitted here.
-					signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined
+					httpsAgent: fetchAgent,
+					timeout: timeoutMs,
+					responseType: 'json',
+					maxBodyLength: Infinity,
+					maxContentLength: Infinity
 				})
-				let parsed: any = undefined
-				try {
-					parsed = await response.json()
-				} catch {
-					parsed = undefined
-				}
-
-				result = parsed
+				result = body.data
 
 				if (result?.url || result?.directPath) {
 					urls = {
@@ -764,6 +742,10 @@ export const getWAUploadToServer = (
 					throw new Error(`upload failed, reason: ${JSON.stringify(result)}`)
 				}
 			} catch (error: any) {
+				if (axios.isAxiosError(error)) {
+					result = error.response?.data
+				}
+
 				const isLast = hostname === hosts[uploadInfo.hosts.length - 1]?.hostname
 				logger.warn(
 					{ trace: error?.stack, uploadResult: result },
@@ -787,7 +769,7 @@ const getMediaRetryKey = (mediaKey: Buffer | Uint8Array) => {
 /**
  * Generate a binary node that will request the phone to re-upload the media & return the newly uploaded URL
  */
-export const encryptMediaRetryRequest = async (key: proto.IMessageKey, mediaKey: Buffer | Uint8Array, meId: string) => {
+export const encryptMediaRetryRequest = async (key: WAMessageKey, mediaKey: Buffer | Uint8Array, meId: string) => {
 	const recp: proto.IServerErrorReceipt = { stanzaId: key.id }
 	const recpBuffer = proto.ServerErrorReceipt.encode(recp).finish()
 
@@ -869,7 +851,7 @@ export const decryptMediaRetryData = async (
 ) => {
 	const retryKey = await getMediaRetryKey(mediaKey)
 	const plaintext = aesDecryptGCM(ciphertext, retryKey, iv, Buffer.from(msgId))
-	return decodeAndHydrate(proto.MediaRetryNotification, plaintext)
+	return proto.MediaRetryNotification.decode(plaintext)
 }
 
 export const getStatusCodeForMediaRetry = (code: number) =>

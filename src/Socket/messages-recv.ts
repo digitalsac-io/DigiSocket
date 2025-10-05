@@ -11,6 +11,7 @@ import type {
 	SocketConfig,
 	WACallEvent,
 	WACallUpdateType,
+	WAMessage,
 	WAMessageKey,
 	WAPatchName
 } from '../Types'
@@ -40,7 +41,6 @@ import {
 	xmppSignedPreKey
 } from '../Utils'
 import { makeMutex } from '../Utils/make-mutex'
-import { decodeAndHydrate } from '../Utils/proto-utils'
 import {
 	areJidsSameUser,
 	type BinaryNode,
@@ -298,8 +298,8 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 							typeof plaintextNode.content === 'string'
 								? Buffer.from(plaintextNode.content, 'binary')
 								: Buffer.from(plaintextNode.content as Uint8Array)
-						const messageProto = decodeAndHydrate(proto.Message, contentBuf)
-						const fullMessage = proto.WebMessageInfo.create({
+						const messageProto = proto.Message.decode(contentBuf).toJSON()
+						const fullMessage = proto.WebMessageInfo.fromObject({
 							key: {
 								remoteJid: from,
 								id: child.attrs.message_id || child.attrs.server_id,
@@ -307,7 +307,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 							},
 							message: messageProto,
 							messageTimestamp: +child.attrs.t!
-						})
+						}).toJSON() as WAMessage
 						await upsertMessage(fullMessage, 'append')
 						logger.info('Processed plaintext newsletter message')
 					} catch (error) {
@@ -523,8 +523,8 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 				// Schedule phone request with delay (like whatsmeow)
 				messageRetryManager.schedulePhoneRequest(msgId, async () => {
 					try {
-						const msgId = await requestPlaceholderResend(msgKey)
-						logger.debug(`sendRetryRequest: requested placeholder resend for message ${msgId} (scheduled)`)
+						const requestId = await requestPlaceholderResend(msgKey)
+						logger.debug(`sendRetryRequest: requested placeholder resend (${requestId}) for message ${msgId} (scheduled)`)
 					} catch (error) {
 						logger.warn({ error, msgId }, 'failed to send scheduled phone request')
 					}
@@ -622,7 +622,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const handleGroupNotification = (participant: string, child: BinaryNode, msg: Partial<proto.IWebMessageInfo>) => {
+	const handleGroupNotification = (participant: string, child: BinaryNode, msg: Partial<WAMessage>) => {
 		const participantJid = getBinaryNodeChild(child, 'participant')?.attrs?.jid || participant
 		// TODO: Add participant LID
 		switch (child?.tag) {
@@ -734,7 +734,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	}
 
 	const processNotification = async (node: BinaryNode) => {
-		const result: Partial<proto.IWebMessageInfo> = {}
+		const result: Partial<WAMessage> = {}
 		const [child] = getAllBinaryNodeChildren(node)
 		const nodeType = node.attrs.type
 		const from = jidNormalizedUser(node.attrs.from)
@@ -950,7 +950,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		await msgRetryCache.set(key, newValue)
 	}
 
-	const sendMessagesAgain = async (key: proto.IMessageKey, ids: string[], retryNode: BinaryNode) => {
+	const sendMessagesAgain = async (key: WAMessageKey, ids: string[], retryNode: BinaryNode) => {
 		const remoteJid = key.remoteJid!
 		const participant = key.participant || remoteJid
 
@@ -1010,12 +1010,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					logger.info({ participant, retryCount, reason: recreateReason }, 'recreating session for outgoing retry')
 					await authState.keys.set({ session: { [sessionId]: null } })
 				}
-		} catch (error) {
-			logger.warn({ error, participant }, 'failed to check session recreation for outgoing retry')
+			} catch (error) {
+				logger.warn({ error, participant }, 'failed to check session recreation for outgoing retry')
+			}
 		}
-	}
 
-	await assertSessions([participant])
+		await assertSessions([participant])
 
 		if (isJidGroup(remoteJid)) {
 			await authState.keys.set({ 'sender-key-memory': { [remoteJid]: null } })
@@ -1165,7 +1165,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 						msg.participant ??= node.attrs.participant
 						msg.messageTimestamp = +node.attrs.t!
 
-						const fullMsg = proto.WebMessageInfo.create(msg as proto.IWebMessageInfo)
+						const fullMsg = proto.WebMessageInfo.fromObject(msg) as WAMessage
 						await upsertMessage(fullMsg, 'append')
 					}
 				})
@@ -1521,7 +1521,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 		// missed call + group call notification message generation
 		if (call.status === 'timeout' || (call.status === 'offer' && call.isGroup)) {
-			const msg: proto.IWebMessageInfo = {
+			const msg: WAMessage = {
 				key: {
 					remoteJid: call.chatId,
 					id: call.id,
@@ -1541,7 +1541,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 				msg.message = { call: { callKey: Buffer.from(call.id) } }
 			}
 
-			const protoMsg = proto.WebMessageInfo.create(msg)
+			const protoMsg = proto.WebMessageInfo.fromObject(msg) as WAMessage
 			upsertMessage(protoMsg, call.offline ? 'append' : 'notify')
 		}
 	})

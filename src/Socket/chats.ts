@@ -387,7 +387,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			]
 		})
 		
-		// Opcionalmente bloqueia o usuário também
+		// Opcionalmente bloqueia o usuï¿½rio tambï¿½m
 		if (reportAndBlock) {
 			await updateBlockStatus(jid, 'block')
 		}
@@ -559,8 +559,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 						]
 					})
 
-					// extract from binary node
-					const decoded = await extractSyncdPatches(result, config?.options)
+				// extract from binary node
+				const decoded = await extractSyncdPatches(result, config?.options)
 					for (const key in decoded) {
 						const name = key as WAPatchName
 						const { patches, hasMorePatches, snapshot } = decoded[name]
@@ -585,13 +585,13 @@ export const makeChatsSocket = (config: SocketConfig) => {
 							if (patches.length) {
 								const { state: newState, mutationMap } = await decodePatches(
 									name,
-									patches,
-									states[name],
-									getAppStateSyncKey,
-									config.options,
-									initialVersionMap[name],
-									logger,
-									appStateMacVerification.patch
+							patches,
+							states[name],
+							getAppStateSyncKey,
+							config.options,
+							initialVersionMap[name],
+							logger,
+							appStateMacVerification.patch
 								)
 
 								await authState.keys.set({ 'app-state-sync-version': { [name]: newState } })
@@ -843,12 +843,12 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			const { onMutation } = newAppStateChunkHandler(false)
 			const { mutationMap } = await decodePatches(
 				name,
-				[{ ...encodeResult!.patch, version: { version: encodeResult!.state.version } }],
-				initial!,
-				getAppStateSyncKey,
-				config.options,
-				undefined,
-				logger
+			[{ ...encodeResult!.patch, version: { version: encodeResult!.state.version } }],
+			initial!,
+			getAppStateSyncKey,
+			config.options,
+			undefined,
+			logger
 			)
 			for (const key in mutationMap) {
 				onMutation(mutationMap[key]!)

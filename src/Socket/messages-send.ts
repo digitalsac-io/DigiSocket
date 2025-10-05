@@ -10,6 +10,7 @@ import type {
 	MessageRelayOptions,
 	MiscMessageGenerationOptions,
 	SocketConfig,
+	WAMessage,
 	WAMessageKey
 } from '../Types'
 import {
@@ -59,7 +60,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		logger,
 		linkPreviewImageThumbnailWidth,
 		generateHighQualityLinkPreview,
-		options: httpRequestOptions,
+		options: axiosOptions,
 		patchMessageBeforeSending,
 		cachedGroupMetadata,
 		enableRecentMessageCache,
@@ -403,37 +404,37 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				).map(a => a.lid)
 			]
 
-		logger.debug({ jidsRequiringFetch, wireJids }, 'fetching sessions')
-		const result = await query({
-			tag: 'iq',
-			attrs: {
-				xmlns: 'encrypt',
-				type: 'get',
-				to: S_WHATSAPP_NET
-			},
-			content: [
-				{
-					tag: 'key',
-					attrs: {},
-					content: wireJids.map(jid => ({
-						tag: 'user',
-						attrs: { jid }
-					}))
-				}
-			]
-		})
-		await parseAndInjectE2ESessions(result, signalRepository)
-		didFetchNewSession = true
+			logger.debug({ jidsRequiringFetch, wireJids }, 'fetching sessions')
+			const result = await query({
+				tag: 'iq',
+				attrs: {
+					xmlns: 'encrypt',
+					type: 'get',
+					to: S_WHATSAPP_NET
+				},
+				content: [
+					{
+						tag: 'key',
+						attrs: {},
+						content: wireJids.map(jid => ({
+							tag: 'user',
+							attrs: { jid }
+						}))
+					}
+				]
+			})
+			await parseAndInjectE2ESessions(result, signalRepository)
+			didFetchNewSession = true
 
-		// Cache fetched sessions using wire JIDs
-		for (const wireJid of wireJids) {
-			const signalId = signalRepository.jidToSignalProtocolAddress(wireJid)
-			peerSessionsCache.set(signalId, true)
+			// Cache fetched sessions using wire JIDs
+			for (const wireJid of wireJids) {
+				const signalId = signalRepository.jidToSignalProtocolAddress(wireJid)
+				peerSessionsCache.set(signalId, true)
+			}
 		}
-	}
 
-	return didFetchNewSession
-}
+		return didFetchNewSession
+	}
 
 	const sendPeerDataOperationMessage = async (
 		pdoMessage: proto.Message.IPeerDataOperationRequestMessage
@@ -464,27 +465,27 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 	}
 
 	const createParticipantNodes = async (
-		jids: string[],
+		recipientJids: string[],
 		message: proto.IMessage,
 		extraAttrs?: BinaryNode['attrs'],
 		dsmMessage?: proto.IMessage
 	) => {
-		if (!jids.length) {
+		if (!recipientJids.length) {
 			return { nodes: [] as BinaryNode[], shouldIncludeDeviceIdentity: false }
 		}
 
-		let patched = await patchMessageBeforeSending(message, jids)
-		if (!Array.isArray(patched)) {
-			patched = jids ? jids.map(jid => ({ recipientJid: jid, ...patched })) : [patched]
-		}
+		const patched = await patchMessageBeforeSending(message, recipientJids)
+		const patchedMessages = Array.isArray(patched)
+			? patched
+			: recipientJids.map(jid => ({ recipientJid: jid, message: patched }))
 
 		let shouldIncludeDeviceIdentity = false
 		const meId = authState.creds.me!.id
 		const meLid = authState.creds.me?.lid
 		const meLidUser = meLid ? jidDecode(meLid)?.user : null
 
-		const encryptionPromises = (patched as any).map(
-			async ({ recipientJid: jid, ...patchedMessage }: any) => {
+		const encryptionPromises = (patchedMessages as any).map(
+			async ({ recipientJid: jid, message: patchedMessage }: any) => {
 				if (!jid) return null
 				let msgToEncrypt = patchedMessage
 				if (dsmMessage) {
@@ -948,10 +949,6 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		if (message.eventMessage) {
 			return 'event'
 		}
-		
-		if (getMediaType(message) !== '') {
-			return 'media'
-		}
 
 		return 'text'
 	}
@@ -1114,7 +1111,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		createParticipantNodes,
 		getUSyncDevices,
 		messageRetryManager,
-		updateMediaMessage: async (message: proto.IWebMessageInfo) => {
+		updateMediaMessage: async (message: WAMessage) => {
 			const content = assertMediaContent(message.message)
 			const mediaKey = content.mediaKey!
 			const meId = authState.creds.me!.id
@@ -1132,15 +1129,15 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 							try {
 								const media = await decryptMediaRetryData(result.media!, mediaKey, result.key.id!)
 								if (media.result !== proto.MediaRetryNotification.ResultType.SUCCESS) {
-									const resultStr = proto.MediaRetryNotification.ResultType[media.result]
+									const resultStr = proto.MediaRetryNotification.ResultType[media.result!]
 									throw new Boom(`Media re-upload failed by device (${resultStr})`, {
 										data: media,
-										statusCode: getStatusCodeForMediaRetry(media.result) || 404
+										statusCode: getStatusCodeForMediaRetry(media.result!) || 404
 									})
 								}
 
 								content.directPath = media.directPath
-								content.url = getUrlFromDirectPath(content.directPath)
+								content.url = getUrlFromDirectPath(content.directPath!)
 
 								logger.debug({ directPath: media.directPath, key: result.key }, 'media update successful')
 							} catch (err: any) {
@@ -1180,23 +1177,23 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			} else {
 				const fullMsg = await generateWAMessage(jid, content, {
 					logger,
-					userJid,
-					getUrlInfo: text =>
-						getUrlInfo(text, {
-							thumbnailWidth: linkPreviewImageThumbnailWidth,
-							fetchOpts: {
-								timeout: 3_000,
-								...(httpRequestOptions || {})
-							},
-							logger,
-							uploadImage: generateHighQualityLinkPreview ? waUploadToServer : undefined
-						}),
-					//TODO: CACHE
-					getProfilePicUrl: sock.profilePictureUrl,
-					getCallLink: sock.createCallLink,
-					upload: waUploadToServer,
-					mediaCache: config.mediaCache,
-					options: config.options,
+				userJid,
+				getUrlInfo: text =>
+					getUrlInfo(text, {
+						thumbnailWidth: linkPreviewImageThumbnailWidth,
+						fetchOpts: {
+							timeout: 3_000,
+							...(axiosOptions || {})
+						} as any,
+						logger,
+						uploadImage: generateHighQualityLinkPreview ? waUploadToServer : undefined
+					}),
+				//TODO: CACHE
+				getProfilePicUrl: sock.profilePictureUrl,
+				getCallLink: sock.createCallLink,
+				upload: waUploadToServer,
+				mediaCache: config.mediaCache,
+				options: config.options as any,
 					transformAudio,
 					messageId: generateMessageIDV2(sock.user?.id),
 					...options

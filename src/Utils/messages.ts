@@ -1,4 +1,5 @@
 import { Boom } from '@hapi/boom'
+import axios from 'axios'
 import { randomBytes } from 'crypto'
 import { promises as fs } from 'fs'
 import { type Transform } from 'stream'
@@ -23,6 +24,7 @@ import type {
 	WAMediaUpload,
 	WAMessage,
 	WAMessageContent,
+	WAMessageKey,
 	WATextMessage
 } from '../Types'
 import { WAMessageStatus, WAProto } from '../Types'
@@ -40,7 +42,6 @@ import {
 	getRawMediaUploadData,
 	type MediaDownloadOptions
 } from './messages-media'
-import { decodeAndHydrate } from './proto-utils'
 
 type MediaUploadData = {
 	media: WAMediaUpload
@@ -159,7 +160,7 @@ export const prepareWAMessageMedia = async (
 		if (mediaBuff) {
 			logger?.debug({ cacheableKey }, 'got media cache hit')
 
-			const obj = decodeAndHydrate(proto.Message, mediaBuff)
+			const obj = proto.Message.decode(mediaBuff)
 			const key = `${mediaType}Message`
 
 			Object.assign(obj[key as keyof proto.Message]!, { ...uploadData, media: undefined })
@@ -186,9 +187,9 @@ export const prepareWAMessageMedia = async (
 
 		await fs.unlink(filePath)
 
-		const obj = WAProto.Message.create({
+		const obj = WAProto.Message.fromObject({
 			// todo: add more support here
-			[`${mediaType}Message`]: (MessageTypeProto as any)[mediaType].create({
+			[`${mediaType}Message`]: (MessageTypeProto as any)[mediaType].fromObject({
 				url: mediaUrl,
 				directPath,
 				fileSha256,
@@ -223,7 +224,7 @@ export const prepareWAMessageMedia = async (
 	const requiresAudioTransformation = options.transformAudio && mediaType === 'audio' && uploadData.ptt === true
 	const requiresOriginalForSomeProcessing = requiresDurationComputation || requiresThumbnailComputation || requiresAudioTransformation
 	
-	// ?? DEBUG: Log das condições para conversão de áudio
+	// ?? DEBUG: Log das condiï¿½ï¿½es para conversï¿½o de ï¿½udio
 	if (mediaType === 'audio') {
 		logger?.debug({
 			mediaType,
@@ -231,16 +232,16 @@ export const prepareWAMessageMedia = async (
 			ptt: uploadData.ptt,
 			requiresAudioTransformation,
 			originalMimetype: uploadData.mimetype
-		}, '?? AUDIO DEBUG: Verificando condições para conversão PTT')
+		}, '?? AUDIO DEBUG: Verificando condiï¿½ï¿½es para conversï¿½o PTT')
 	}
 	
 	// Track converted file path for cleanup
 	let convertedFilePath: string | undefined
 	
-	// ?? IMPORTANTE: Conversão deve acontecer ANTES da encriptação e upload!
+	// ?? IMPORTANTE: Conversï¿½o deve acontecer ANTES da encriptaï¿½ï¿½o e upload!
 	if (requiresAudioTransformation) {
 		try {
-			logger?.debug('?? AUDIO CONVERSION: Iniciando conversão ANTES do upload')
+			logger?.debug('?? AUDIO CONVERSION: Iniciando conversï¿½o ANTES do upload')
 			
 			// First save the original media to a temp file
 			const tempMedia = await encryptedStream(
@@ -264,7 +265,7 @@ export const prepareWAMessageMedia = async (
 			
 			await convertAudioToPTTFormat(tempMedia.originalFilePath!, convertedFilePath, logger)
 			
-			// ?? Verificar qual arquivo foi realmente criado (pode ter extensão diferente)
+			// ?? Verificar qual arquivo foi realmente criado (pode ter extensï¿½o diferente)
 			const fs = await import('fs/promises')
 			const possiblePaths = [
 				convertedFilePath,                                      // .ogg original
@@ -278,7 +279,7 @@ export const prepareWAMessageMedia = async (
 					actualConvertedPath = path
 					break
 				} catch {
-					// arquivo não existe, tentar próximo
+					// arquivo nï¿½o existe, tentar prï¿½ximo
 				}
 			}
 			
@@ -287,7 +288,7 @@ export const prepareWAMessageMedia = async (
 			convertedFilePath = actualConvertedPath // Atualizar para cleanup
 			const oldMimetype = uploadData.mimetype
 			
-			// ?? Definir mimetype baseado na extensão do arquivo convertido
+			// ?? Definir mimetype baseado na extensï¿½o do arquivo convertido
 			if (actualConvertedPath.endsWith('.ogg')) {
 				uploadData.mimetype = 'audio/ogg; codecs=opus'
 			} else if (actualConvertedPath.endsWith('.m4a')) {
@@ -296,7 +297,7 @@ export const prepareWAMessageMedia = async (
 				uploadData.mimetype = 'audio/ogg; codecs=opus' // fallback
 			}
 			
-			// ?? IMPORTANTE: Forçar propriedades específicas para PTT no WhatsApp
+			// ?? IMPORTANTE: Forï¿½ar propriedades especï¿½ficas para PTT no WhatsApp
 			uploadData.ptt = true
 			
 			logger?.debug({ 
@@ -307,18 +308,18 @@ export const prepareWAMessageMedia = async (
 				ptt: uploadData.ptt,
 				codecUsed: actualConvertedPath.endsWith('.ogg') ? 'opus' : 'ipod',
 				extensionUsed: actualConvertedPath.split('.').pop()
-			}, '?? AUDIO CONVERSION: ? PRÉ-CONVERSÃO concluída! Agora vai para upload')
+			}, '?? AUDIO CONVERSION: ? PRï¿½-CONVERSï¿½O concluï¿½da! Agora vai para upload')
 			
 			// Clean up temp original file
 			try {
 				await fs.unlink(tempMedia.originalFilePath!)
 				await fs.unlink(tempMedia.encFilePath)
 			} catch (error) {
-				logger?.warn('Falha ao limpar arquivos temporários da pré-conversão')
+				logger?.warn('Falha ao limpar arquivos temporï¿½rios da prï¿½-conversï¿½o')
 			}
 			
 		} catch (error) {
-			logger?.warn({ trace: (error as any).stack }, '? AUDIO PRE-CONVERSION: Falha na conversão, continuando com original')
+			logger?.warn({ trace: (error as any).stack }, '? AUDIO PRE-CONVERSION: Falha na conversï¿½o, continuando com original')
 			convertedFilePath = undefined
 		}
 	}
@@ -334,6 +335,8 @@ export const prepareWAMessageMedia = async (
 	)
 
 	const fileEncSha256B64 = fileEncSha256.toString('base64')
+	
+	// ðŸ”§ FIX: NÃ£o deletar arquivos no .finally() - aguardar upload completo
 	const [{ mediaUrl, directPath }] = await Promise.all([
 		(async () => {
 			const result = await options.upload(encFilePath, {
@@ -377,35 +380,36 @@ export const prepareWAMessageMedia = async (
 					logger?.debug('computed backgroundColor audio status')
 				}
 
-				// ? Conversão já foi feita ANTES do upload - removida daqui
+				// ? ConversÃ£o jÃ¡ foi feita ANTES do upload - removida daqui
 			} catch (error) {
 				logger?.warn({ trace: (error as any).stack }, 'failed to obtain extra info')
 			}
 		})()
-	]).finally(async () => {
-		try {
-			// Remove encrypted file
-			await fs.unlink(encFilePath)
-			
-			// Remove original file if it was saved
-			if (originalFilePath) {
-				await fs.unlink(originalFilePath)
-			}
-			
-			// Remove converted audio file if it was created
-			if (convertedFilePath) {
-				await fs.unlink(convertedFilePath)
-				logger?.debug({ convertedFilePath }, 'removed converted audio file')
-			}
-
-			logger?.debug('removed tmp files')
-		} catch (error) {
-			logger?.warn({ error }, 'failed to remove tmp file')
+	])
+	
+	// ðŸ”§ FIX: Limpar arquivos temporÃ¡rios APENAS DEPOIS que o upload terminou
+	try {
+		// Remove encrypted file AFTER upload is complete
+		await fs.unlink(encFilePath)
+		
+		// Remove original file if it was saved
+		if (originalFilePath) {
+			await fs.unlink(originalFilePath)
 		}
-	})
+		
+		// Remove converted audio file if it was created
+		if (convertedFilePath) {
+			await fs.unlink(convertedFilePath)
+			logger?.debug({ convertedFilePath }, 'removed converted audio file')
+		}
 
-	const obj = WAProto.Message.create({
-		[`${mediaType}Message`]: MessageTypeProto[mediaType as keyof typeof MessageTypeProto].create({
+		logger?.debug('removed tmp files')
+	} catch (error) {
+		logger?.warn({ error }, 'failed to remove tmp file')
+	}
+
+	const obj = WAProto.Message.fromObject({
+		[`${mediaType}Message`]: MessageTypeProto[mediaType as keyof typeof MessageTypeProto].fromObject({
 			url: mediaUrl,
 			directPath,
 			mediaKey,
@@ -443,7 +447,7 @@ export const prepareDisappearingMessageSettingContent = (ephemeralExpiration?: n
 			}
 		}
 	}
-	return WAProto.Message.create(content)
+	return WAProto.Message.fromObject(content)
 }
 
 /**
@@ -459,7 +463,7 @@ export const generateForwardMessageContent = (message: WAMessage, forceForward?:
 
 	// hacky copy
 	content = normalizeMessageContent(content)
-	content = decodeAndHydrate(proto.Message, proto.Message.encode(content!).finish())
+	content = proto.Message.decode(proto.Message.encode(content!).finish())
 
 	let key = Object.keys(content)[0] as keyof proto.IMessage
 
@@ -570,10 +574,9 @@ export const generateWAMessageContent = async (
 		if (options.getProfilePicUrl) {
 			const pfpUrl = await options.getProfilePicUrl(message.groupInvite.jid, 'preview')
 			if (pfpUrl) {
-				const resp = await fetch(pfpUrl, { method: 'GET', dispatcher: options?.options?.dispatcher })
-				if (resp.ok) {
-					const buf = Buffer.from(await resp.arrayBuffer())
-					m.groupInviteMessage.jpegThumbnail = buf
+				const resp = await axios.get(pfpUrl, { responseType: 'arraybuffer' })
+				if (resp.status === 200) {
+					m.groupInviteMessage.jpegThumbnail = resp.data
 				}
 			}
 		}
@@ -872,7 +875,7 @@ export const generateWAMessageFromContent = (
 		participant: isJidGroup(jid) || isJidStatusBroadcast(jid) ? userJid : undefined, // TODO: Add support for LIDs
 		status: WAMessageStatus.PENDING
 	}
-	return WAProto.WebMessageInfo.create(messageJSON)
+	return WAProto.WebMessageInfo.fromObject(messageJSON) as WAMessage
 }
 
 export const generateWAMessage = async (jid: string, content: AnyMessageContent, options: MessageGenerationOptions) => {
@@ -1075,7 +1078,7 @@ export function getAggregateVotesInPollMessage(
 }
 
 /** Given a list of message keys, aggregates them by chat & sender. Useful for sending read receipts in bulk */
-export const aggregateMessageKeysNotFromMe = (keys: proto.IMessageKey[]) => {
+export const aggregateMessageKeysNotFromMe = (keys: WAMessageKey[]) => {
 	const keyMap: { [id: string]: { jid: string; participant: string | undefined; messageIds: string[] } } = {}
 	for (const { remoteJid, id, participant, fromMe } of keys) {
 		if (!fromMe) {
@@ -1114,8 +1117,8 @@ export const downloadMediaMessage = async <Type extends 'buffer' | 'stream'>(
 	const result = await downloadMsg().catch(async error => {
 		if (
 			ctx &&
-			typeof error?.status === 'number' && // treat errors with status as HTTP failures requiring reupload
-			REUPLOAD_REQUIRED_STATUS.includes(error.status as number)
+			axios.isAxiosError(error) && // check if the message requires a reupload
+			REUPLOAD_REQUIRED_STATUS.includes(error.response?.status!)
 		) {
 			ctx.logger.info({ key: message.key }, 'sending reupload media request...')
 			// request reupload
