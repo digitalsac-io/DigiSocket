@@ -3,10 +3,13 @@ import type { proto } from '../../WAProto/index.js'
 import type { ILogger } from './logger'
 
 /** Number of sent messages to cache in memory for handling retry receipts */
-const RECENT_MESSAGES_SIZE = 512
+const RECENT_MESSAGES_SIZE = 20000
+
+/** TTL for recent messages cache - 2 hours */
+const RECENT_MESSAGES_TTL = 2 * 60 * 60 * 1000
 
 /** Timeout for session recreation - 1 hour */
-const RECREATE_SESSION_TIMEOUT = 60 * 60 * 1000 // 1 hour in milliseconds
+const RECREATE_SESSION_TIMEOUT = 60 * 60 * 1000
 const PHONE_REQUEST_DELAY = 3000
 export interface RecentMessageKey {
 	to: string
@@ -40,9 +43,7 @@ export interface RetryStatistics {
 }
 
 export class MessageRetryManager {
-	private recentMessagesMap = new LRUCache<string, RecentMessage>({
-		max: RECENT_MESSAGES_SIZE
-	})
+	private recentMessagesMap!: LRUCache<string, RecentMessage>
 	private sessionRecreateHistory = new LRUCache<string, number>({
 		ttl: RECREATE_SESSION_TIMEOUT * 2,
 		ttlAutopurge: true
@@ -65,9 +66,18 @@ export class MessageRetryManager {
 
 	constructor(
 		private logger: ILogger,
-		maxMsgRetryCount: number
+		maxMsgRetryCount: number,
+		recentMessagesCacheSize: number = RECENT_MESSAGES_SIZE
 	) {
 		this.maxMsgRetryCount = maxMsgRetryCount
+		// Recriar o cache com o tamanho configurado
+		this.recentMessagesMap = new LRUCache<string, RecentMessage>({
+			max: recentMessagesCacheSize,
+			ttl: RECENT_MESSAGES_TTL,
+			ttlAutopurge: true,
+			updateAgeOnGet: false
+		})
+		this.logger.info({ cacheSize: recentMessagesCacheSize, ttl: RECENT_MESSAGES_TTL }, '📦 Cache de retry configurado')
 	}
 
 	/**

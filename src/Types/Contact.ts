@@ -3,7 +3,9 @@ export interface Contact {
 	id: string
 	/** ID in LID format (@lid) **/
 	lid?: string
-	/** ID in PN format (@s.whatsapp.net)  **/
+	/** ID in PN format (@s.whatsapp.net) - V6 compatibility **/
+	jid?: string
+	/** ID in PN format (@s.whatsapp.net) - V7 field name **/
 	phoneNumber?: string
 	/** name of the contact, you have saved on your WA */
 	name?: string

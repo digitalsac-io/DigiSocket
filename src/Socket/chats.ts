@@ -559,8 +559,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 						]
 					})
 
-				// extract from binary node
-				const decoded = await extractSyncdPatches(result, config?.options)
+					// extract from binary node
+					const decoded = await extractSyncdPatches(result, config?.options)
 					for (const key in decoded) {
 						const name = key as WAPatchName
 						const { patches, hasMorePatches, snapshot } = decoded[name]
@@ -585,13 +585,13 @@ export const makeChatsSocket = (config: SocketConfig) => {
 							if (patches.length) {
 								const { state: newState, mutationMap } = await decodePatches(
 									name,
-							patches,
-							states[name],
-							getAppStateSyncKey,
-							config.options,
-							initialVersionMap[name],
-							logger,
-							appStateMacVerification.patch
+									patches,
+									states[name],
+									getAppStateSyncKey,
+									config.options,
+									initialVersionMap[name],
+									logger,
+									appStateMacVerification.patch
 								)
 
 								await authState.keys.set({ 'app-state-sync-version': { [name]: newState } })
@@ -645,6 +645,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	 * type = "image for the high res picture"
 	 */
 	const profilePictureUrl = async (jid: string, type: 'preview' | 'image' = 'preview', timeoutMs?: number) => {
+		// TOOD: Add support for tctoken, existingID, and newsletter + group options
 		jid = jidNormalizedUser(jid)
 		const result = await query(
 			{
@@ -750,7 +751,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		const jid = attrs.from
 		const participant = attrs.participant || attrs.from
 
-		if (shouldIgnoreJid(jid!) && jid !== '@s.whatsapp.net') {
+		if (shouldIgnoreJid(jid!) && jid !== S_WHATSAPP_NET) {
 			return
 		}
 
@@ -843,12 +844,12 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			const { onMutation } = newAppStateChunkHandler(false)
 			const { mutationMap } = await decodePatches(
 				name,
-			[{ ...encodeResult!.patch, version: { version: encodeResult!.state.version } }],
-			initial!,
-			getAppStateSyncKey,
-			config.options,
-			undefined,
-			logger
+				[{ ...encodeResult!.patch, version: { version: encodeResult!.state.version } }],
+				initial!,
+				getAppStateSyncKey,
+				config.options,
+				undefined,
+				logger
 			)
 			for (const key in mutationMap) {
 				onMutation(mutationMap[key]!)
@@ -858,6 +859,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 
 	/** sending non-abt props may fix QR scan fail if server expects */
 	const fetchProps = async () => {
+		//TODO: implement both protocol 1 and protocol 2 prop fetching, specially for abKey for WM
 		const resultNode = await query({
 			tag: 'iq',
 			attrs: {
@@ -1207,6 +1209,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 
 		awaitingSyncTimeout = setTimeout(() => {
 			if (syncState === SyncState.AwaitingInitialSync) {
+				// TODO: investigate
 				logger.warn('Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer')
 				syncState = SyncState.Online
 				ev.flush()

@@ -17,6 +17,15 @@ import { makeChatsSocket } from './chats'
 export const makeGroupsSocket = (config: SocketConfig) => {
 	const sock = makeChatsSocket(config)
 	const { authState, ev, query, upsertMessage } = sock
+	
+	// In-memory cache for group metadata and LID mappings
+	const groupMetadataCache: Map<string, { 
+		participants: string[], 
+		addressingMode: WAMessageAddressingMode, 
+		updatedAt: number 
+	}> = new Map()
+	
+	const lidMappingCache: Map<string, { [key: string]: string }> = new Map()
 
 	const groupQuery = async (jid: string, type: 'get' | 'set', content: BinaryNode[]) =>
 		query({
@@ -31,8 +40,59 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 
 	const groupMetadata = async (jid: string) => {
 		const result = await groupQuery(jid, 'get', [{ tag: 'query', attrs: { request: 'interactive' } }])
-		return extractGroupMetadata(result)
+		const metadata = extractGroupMetadata(result, config.logger, lidMappingCache)
+		
+		// Store LID mappings and participants in cache
+		await storeLIDMappingsAndParticipants(metadata)
+		
+		return metadata
 	}
+	
+	// Helper function to store LID mappings and group participants in memory cache
+	const storeLIDMappingsAndParticipants = async (metadata: GroupMetadata) => {
+		try {
+			const lidMappings: { [key: string]: string } = {}
+			const participantIds: string[] = []
+			
+			// Extract LID <-> PN mappings
+			for (const participant of metadata.participants) {
+				// Use jid (phone number) as the main ID
+				const phoneJid = participant.jid || participant.id
+				participantIds.push(phoneJid)
+				
+				// Store bidirectional mapping if both LID and phone exist
+				if (participant.lid && phoneJid && participant.lid !== phoneJid) {
+					lidMappings[participant.lid] = phoneJid
+					lidMappings[phoneJid] = participant.lid
+				}
+			}
+			
+			// Store in memory cache
+			groupMetadataCache.set(metadata.id, {
+				participants: participantIds,
+				addressingMode: metadata.addressingMode || WAMessageAddressingMode.LID,
+				updatedAt: Date.now()
+			})
+			
+			if (Object.keys(lidMappings).length > 0) {
+				lidMappingCache.set(metadata.id, lidMappings)
+			}
+			
+			config.logger?.trace({ 
+				jid: metadata.id, 
+				participants: participantIds.length,
+				mappings: Object.keys(lidMappings).length 
+			}, 'stored group metadata and LID mappings in cache')
+		} catch (error) {
+			config.logger?.warn({ error, jid: metadata.id }, 'failed to store group metadata')
+		}
+	}
+	
+	// Helper to get cached group metadata
+	const getCachedGroupMetadata = (jid: string) => groupMetadataCache.get(jid)
+	
+	// Helper to get LID mappings
+	const getLIDMappings = (jid: string) => lidMappingCache.get(jid) || {}
 
 	const groupFetchAllParticipating = async () => {
 		const result = await query({
@@ -62,11 +122,15 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 					tag: 'result',
 					attrs: {},
 					content: [groupNode]
-				})
+				}, config.logger, lidMappingCache)
 				data[meta.id] = meta
+				
+				// Store LID mappings and participants for each group
+				await storeLIDMappingsAndParticipants(meta)
 			}
 		}
 
+		// TODO: properly parse LID / PN DATA
 		sock.ev.emit('groups.update', Object.values(data))
 
 		return data
@@ -85,6 +149,8 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 	return {
 		...sock,
 		groupMetadata,
+		getCachedGroupMetadata,
+		getLIDMappings,
 		groupCreate: async (subject: string, participants: string[]) => {
 			const key = generateMessageIDV2()
 			const result = await groupQuery('@g.us', 'set', [
@@ -152,7 +218,8 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 			const nodeAction = getBinaryNodeChild(node, action)
 			const participantsAffected = getBinaryNodeChildren(nodeAction, 'participant')
 			return participantsAffected.map(p => {
-				return { status: p.attrs.error || '200', jid: p.attrs.jid }
+				// V6 compatibility: include lid field
+				return { status: p.attrs.error || '200', jid: p.attrs.jid, lid: p.attrs.lid }
 			})
 		},
 		groupParticipantsUpdate: async (jid: string, participants: string[], action: ParticipantAction) => {
@@ -169,7 +236,8 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 			const node = getBinaryNodeChild(result, action)
 			const participantsAffected = getBinaryNodeChildren(node, 'participant')
 			return participantsAffected.map(p => {
-				return { status: p.attrs.error || '200', jid: p.attrs.jid, content: p }
+				// V6 compatibility: include lid field
+				return { status: p.attrs.error || '200', jid: p.attrs.jid, lid: p.attrs.lid, content: p }
 			})
 		},
 		groupUpdateDescription: async (jid: string, description?: string) => {
@@ -264,7 +332,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 							participant: key.remoteJid
 						},
 						messageStubType: WAMessageStubType.GROUP_PARTICIPANT_ADD,
-						messageStubParameters: [authState.creds.me!.id],
+						messageStubParameters: [JSON.stringify(authState.creds.me)],
 						participant: key.remoteJid,
 						messageTimestamp: unixTimestampSeconds()
 					},
@@ -299,7 +367,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 	}
 }
 
-export const extractGroupMetadata = (result: BinaryNode) => {
+export const extractGroupMetadata = (result: BinaryNode, logger?: any, lidMappingCache?: Map<string, { [key: string]: string }>) => {
 	const group = getBinaryNodeChild(result, 'group')!
 	const descChild = getBinaryNodeChild(group, 'description')
 	let desc: string | undefined
@@ -344,10 +412,62 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 		joinApprovalMode: !!getBinaryNodeChild(group, 'membership_approval_mode'),
 		memberAddMode,
 		participants: getBinaryNodeChildren(group, 'participant').map(({ attrs }) => {
+			// Backwards compatibility: Keep v6 structure + v7 enhancements
+			const isLid = isLidUser(attrs.jid)
+			const isPn = isPnUser(attrs.jid)
+			
+			// Determine the phone number JID
+			let phoneJid: string
+			let originalLid: string | undefined
+			
+			if (isPn) {
+				// If attrs.jid is already a phone number, use it
+				phoneJid = attrs.jid!
+				originalLid = attrs.lid
+			} else if (isLid) {
+				// attrs.jid is LID, try to find phone number
+				originalLid = attrs.jid
+				
+				if (attrs.phone_number) {
+					// Phone number provided by WhatsApp
+					phoneJid = isPnUser(attrs.phone_number) ? attrs.phone_number : jidNormalizedUser(attrs.phone_number)
+				} else if (lidMappingCache) {
+					// Try to get from stored mappings
+					const storedMapping = lidMappingCache.get(groupId!)
+					const mappedPhone = storedMapping?.[attrs.jid!]
+					
+					if (mappedPhone && isPnUser(mappedPhone)) {
+						phoneJid = mappedPhone
+						logger?.debug({ lid: attrs.jid, phone: mappedPhone }, 'using cached LID mapping for participant')
+					} else {
+						// Last resort: keep the LID but warn
+						phoneJid = attrs.jid!
+						logger?.warn({ 
+							groupId: groupId, 
+							participantLid: attrs.jid 
+						}, 'participant phone number not available, using LID')
+					}
+				} else {
+					// No mappings available, keep LID
+					phoneJid = attrs.jid!
+					logger?.warn({ 
+						groupId: groupId, 
+						participantLid: attrs.jid 
+					}, 'participant phone number not available (no cache), using LID')
+				}
+			} else {
+				// Unexpected format
+				phoneJid = attrs.jid!
+			}
+			
 			return {
-				id: attrs.jid!,
-				phoneNumber: isLidUser(attrs.jid) && isPnUser(attrs.phone_number) ? attrs.phone_number : undefined,
-				lid: isPnUser(attrs.jid) && isLidUser(attrs.lid) ? attrs.lid : undefined,
+				// CRITICAL: Use phone number as 'id' for frontend compatibility
+				id: phoneJid,
+				// V6 compatibility: 'jid' field always has phone number
+				jid: phoneJid,
+				// V7 fields
+				phoneNumber: phoneJid !== originalLid ? phoneJid : undefined,
+				lid: originalLid,
 				admin: (attrs.type || null) as GroupParticipant['admin']
 			}
 		}),

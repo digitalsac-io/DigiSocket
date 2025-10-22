@@ -150,4 +150,16 @@ export type SocketConfig = {
 		logger: ILogger,
 		pnToLIDFunc?: (jids: string[]) => Promise<LIDMapping[] | undefined>
 	) => SignalRepositoryWithLIDStore
+
+	/** 🆕 Habilita compatibilidade de envio em grupo "estilo v6" (lazy assert + fallback relay) */
+	compatV6GroupSend?: boolean
+	
+	/** 🆕 Tamanho do lote para reparo progressivo de sessões (se precisar) */
+	groupAssertChunk?: number
+	
+	/** 🆕 Delay entre lotes (ms) no reparo progressivo */
+	groupAssertDelayMs?: number
+	
+	/** 🆕 Tamanho do cache de mensagens para retry (padrão: 20000) */
+	recentMessagesCacheSize?: number
 }
