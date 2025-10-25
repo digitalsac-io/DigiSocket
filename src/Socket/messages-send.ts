@@ -873,32 +873,18 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				meId: groupMeId
 			})
 
-			const senderKeyJids: string[] = []
-			const devicesWithSession: typeof devices = []
-			
-			for (const deviceInfo of devices) {
-				const { user, device, jid } = deviceInfo
-				const server = jidDecode(jid)?.server || 'lid'
-				const senderId = jidEncode(user, server, device)
-				
-				try {
-					const hasSession = await signalRepository.validateSession(senderId)
-					if (hasSession.exists) {
-						senderKeyJids.push(senderId)
-						devicesWithSession.push(deviceInfo)
-					} else {
-						logger.debug({ jid: senderId }, '⏭️ Device sem sessão - pulando no broadcast')
-					}
-				} catch (err) {
-					logger.debug({ jid: senderId, error: String(err) }, '⏭️ Erro ao validar sessão - pulando')
-				}
-			}
-			
-			logger.info({ 
-				total: devices.length, 
-				withSession: senderKeyJids.length, 
-				skipped: devices.length - senderKeyJids.length 
-			}, '✅ Devices filtrados por sessão válida')
+		const senderKeyJids: string[] = []
+		
+		// V6 compatibility: Add ALL devices to senderKeyJids without pre-validation
+		// Let assertSessions handle session establishment and WhatsApp handle retries
+		for (const { user, device, jid } of devices) {
+			const server = jidDecode(jid)?.server || 'lid'
+			const senderId = jidEncode(user, server, device)
+			senderKeyJids.push(senderId)
+			senderKeyMap[senderId] = true  // v6: mark all devices as having sender key
+		}
+		
+		logger.debug({ senderKeyJidsCount: senderKeyJids.length, devicesCount: devices.length }, 'Preparando envio de sender key para todos devices')
 
 			if (senderKeyJids.length) {
 				logger.debug({ senderKeyJids }, 'sending new sender key')
@@ -912,24 +898,11 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 				await assertSessions(senderKeyJids)
 
-				const result = await createParticipantNodes(senderKeyJids, senderKeyMsg, extraAttrs)
-				shouldIncludeDeviceIdentity = shouldIncludeDeviceIdentity || result.shouldIncludeDeviceIdentity
+			const result = await createParticipantNodes(senderKeyJids, senderKeyMsg, extraAttrs)
+			shouldIncludeDeviceIdentity = shouldIncludeDeviceIdentity || result.shouldIncludeDeviceIdentity
 
-				participants.push(...result.nodes)
-				
-				for (const node of result.nodes) {
-					const recipientJid = node.attrs.jid
-					if (recipientJid) {
-						senderKeyMap[recipientJid] = true
-					}
-				}
-				
-				const successCount = result.nodes.length
-				const failedCount = senderKeyJids.length - successCount
-				if (failedCount > 0) {
-					logger.warn({ successCount, failedCount, total: senderKeyJids.length }, '⚠️ Alguns devices não receberam sender key')
-				}
-			}
+			participants.push(...result.nodes)
+		}
 
 				if (isRetryResend) {
 					const { type, ciphertext: encryptedContent } = await signalRepository.encryptMessage({
